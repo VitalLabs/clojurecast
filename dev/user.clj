@@ -1,7 +1,8 @@
 (ns user
   (:require [clojure.tools.namespace.repl :as repl :refer [refresh refresh-all]]
             [com.stuartsierra.component :as com]
-            [clojurecast.core :as cc]))
+            [clojurecast.core :as cc]
+            [clojurecast.scheduler :as scheduler]))
 
 (def system nil)
 
@@ -10,7 +11,9 @@
   #'system."
   []
   (.bindRoot #'system (com/system-map
-                       :node (cc/map->Node {}))))
+                       :node (cc/map->Node {})
+                       :scheduler (com/using (scheduler/map->Scheduler {})
+                                             [:node]))))
 
 (defn start
   "Starts the system running, updates the Var #'system."

@@ -180,5 +180,3 @@
   []
   {:pre [*instance*]}
   (.getUserContext *instance*))
-
-
