@@ -8,12 +8,9 @@
   []
   (let [jobs (cc/multi-map "scheduler/jobs")]
     (reify MembershipListener
-      (memberAdded [_ e]
-        (println e))
-      (memberAttributeChanged [_ e]
-        (println e))
-      (memberRemoved [_ e]
-        (println e)))))
+      (memberAdded [_ e])
+      (memberAttributeChanged [_ e])
+      (memberRemoved [_ e]))))
 
 (defrecord Scheduler [^com.hazelcast.core.MultiMap jobs
                       ^ScheduledExecutorService exec
