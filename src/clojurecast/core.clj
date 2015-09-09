@@ -25,9 +25,10 @@
       this)))
 
 (defn ^com.hazelcast.core.IAtomicLong atomic-long
-  [^String name]
-  {:pre [*instance*]}
-  (.getAtomicLong *instance* name))
+  ([] (atomic-long "default"))
+  ([^String name]
+   {:pre [*instance*]}
+   (.getAtomicLong *instance* name)))
 
 (defn ^com.hazelcast.core.ClientService client-service
   []
@@ -43,3 +44,32 @@
   []
   {:pre [*instance*]}
   (.getConfig *instance*))
+
+(defn ^com.hazelcast.core.ICountDownLatch count-down-latch
+  ([] (count-down-latch "default"))
+  ([^String name]
+   {:pre [*instance*]}
+   (.getCountDownLatch *instance* name)))
+
+(defn ^java.util.Collection distributed-objects
+  []
+  {:pre [*instance*]}
+  (.getDistributedObjects *instance*))
+
+(defn ^com.hazelcast.core.IExecutorService executor-service
+  ([] (executor-service "default"))
+  ([^String name]
+   {:pre [*instance*]}
+   (.getExecutorService *instance* name)))
+
+(defn ^com.hazelcast.core.IdGenerator id-generator
+  ([] (id-generator "default"))
+  ([^String name]
+   {:pre [*instance*]}
+   (.getIdGenerator *instance* name)))
+
+(defn ^com.hazelcast.mapreduce.JobTracker job-tracker
+  ([] (job-tracker "default"))
+  ([^String name]
+   {:pre [*instance*]}
+   (.getJobTracker *instance* name)))
