@@ -8,7 +8,8 @@
   (start [this]
     (if exec
       this
-      (let [exec (Executors/newSingleThreadScheduledExecutor)]
+      (let [jobs (cc/multi-map "scheduler/jobs")
+            exec (Executors/newSingleThreadScheduledExecutor)]
         (assoc this :exec exec))))
   (stop [this]
     (if exec

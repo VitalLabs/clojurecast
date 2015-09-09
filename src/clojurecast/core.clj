@@ -180,3 +180,9 @@
   []
   {:pre [*instance*]}
   (.getUserContext *instance*))
+
+(defn clean-down
+  "Destroys all distributed objects managed by Hazelcast. Use with caution."
+  []
+  (doseq [^com.hazelcast.core.DistributedObject object (distributed-objects)]
+    (.destroy object)))
