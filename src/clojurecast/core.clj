@@ -1,16 +1,22 @@
 (ns clojurecast.core
-  (:require [com.stuartsierra.component :as com]))
+  (:require [com.stuartsierra.component :as com])
+  (:import [com.hazelcast.core Hazelcast HazelcastInstance]))
+
+(def ^:dynamic *instance*)
 
 (defrecord Node [instance]
   com/Lifecycle
   (start [this]
     (if instance
       this
-      this))
+      (let [instance (Hazelcast/newHazelcastInstance)]
+        (if (thread-bound? #'*instance*)
+          (set! *instance* instance)
+          (.bindRoot #'*instance* instance))
+        (assoc this :instance instance))))
   (stop [this]
     (if instance
-      this
+      (do
+        (.shutdown instance)
+        (assoc this :instance nil))
       this)))
-
-
-
