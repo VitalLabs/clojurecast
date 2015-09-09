@@ -1,6 +1,7 @@
 (ns user
   (:require [clojure.tools.namespace.repl :as repl :refer [refresh refresh-all]]
-            [com.stuartsierra.component :as com]))
+            [com.stuartsierra.component :as com]
+            [clojurecast.core :as cc]))
 
 (def system nil)
 
@@ -8,7 +9,8 @@
   "Creates and initializes the system under development in the Var
   #'system."
   []
-  (.bindRoot #'system (com/system-map)))
+  (.bindRoot #'system (com/system-map
+                       :node (cc/map->Node {}))))
 
 (defn start
   "Starts the system running, updates the Var #'system."
