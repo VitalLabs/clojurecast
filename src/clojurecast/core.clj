@@ -18,5 +18,8 @@
     (if instance
       (do
         (.shutdown instance)
+        (if (thread-bound? #'*instance*)
+          (set! *instance* nil)
+          (.bindRoot #'*instance* nil))
         (assoc this :instance nil))
       this)))
