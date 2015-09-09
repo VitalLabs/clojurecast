@@ -23,3 +23,18 @@
           (.bindRoot #'*instance* nil))
         (assoc this :instance nil))
       this)))
+
+(defn ^com.hazelcast.core.IAtomicLong atomic-long
+  [^String name]
+  {:pre [*instance*]}
+  (.getAtomicLong *instance* name))
+
+(defn ^com.hazelcast.core.ClientService client-service
+  []
+  {:pre [*instance*]}
+  (.getClientService *instance*))
+
+(defn ^com.hazelcast.core.Cluster cluster
+  []
+  {:pre [*instance*]}
+  (.getCluster *instance*))
