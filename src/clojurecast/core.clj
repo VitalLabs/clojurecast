@@ -2,9 +2,9 @@
   (:require [com.stuartsierra.component :as com])
   (:import [com.hazelcast.core Hazelcast HazelcastInstance]))
 
-(def ^:dynamic *instance*)
+(def ^:dynamic ^HazelcastInstance *instance*)
 
-(defrecord Node [instance]
+(defrecord Node [^HazelcastInstance instance]
   com/Lifecycle
   (start [this]
     (if instance
@@ -38,3 +38,8 @@
   []
   {:pre [*instance*]}
   (.getCluster *instance*))
+
+(defn ^com.hazelcast.config.Config config
+  []
+  {:pre [*instance*]}
+  (.getConfig *instance*))
