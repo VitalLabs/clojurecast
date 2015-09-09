@@ -26,7 +26,6 @@
   []
   (init)
   (start)
-  (setup)
   :ready)
 
 (defn reset
