@@ -15,7 +15,7 @@
   []
   (.getMembers (cc/cluster)))
 
-(defn membership-listeners
+(defn ^com.hazelcast.core.IMap membership-listeners
   []
   (cc/distributed-map "cluster/membership-listeners"))
 
