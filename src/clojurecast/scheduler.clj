@@ -38,15 +38,21 @@
            (cluster/local-member-uuid)
            (:job/id job)))
 
-(defmethod run [:job/t :job.state/waiting]
+(defmethod run [:job/t :job.state/pausing]
   [job-ref]
   (let [job (.get job-ref)]
     (unschedule job)
-    job))
+    (assoc job :job/state :job.state/paused)))
+
+(defmethod run [:job/t :job.state/resuming]
+  [job-ref]
+  (let [job (.get job-ref)]
+    (unschedule job)
+    (assoc job :job/state :job.state/running)))
 
 (defmethod run :default
   [job-ref]
-  (assoc (.get job-ref) :job/state :job.state/waiting))
+  (assoc (.get job-ref) :job/state :job.state/pausing))
 
 (defn- scheduler-membership-listener
   []
@@ -81,7 +87,7 @@
         (swap! tasks dissoc job-id)
         (.set job-ref job)
         (when-not (or (.isCancelled scheduled-future)
-                      (= (:job/state job) :job.state/waiting))
+                      (= (:job/state job) :job.state/paused))
           (run-job job-id exec tasks))))))
 
 (defn- job-entry-listener
