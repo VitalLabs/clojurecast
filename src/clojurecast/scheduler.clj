@@ -5,11 +5,48 @@
   (:import [java.util.concurrent Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
+           [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
 
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
 
-(defmethod run :default [job])
+(defmulti handle-message :event/type)
+
+(defn- job-message-listener
+  []
+  (reify MessageListener
+    (onMessage [_ message]
+      (handle-message message))))
+
+(defn schedule
+  [job]
+  (.set (cc/atomic-reference (:job/id job))
+        (assoc job
+          :job/topic-bus (.addMessageListener (cc/reliable-topic (:job/id job))
+                                              (job-message-listener))))
+  (.put (cc/multi-map "scheduler/jobs")
+        (cluster/local-member-uuid)
+        (:job/id job)))
+
+(defn unschedule
+  [job]
+  (let [job-ref (cc/atomic-reference (:job/id job))]
+    (.removeMessageListener (cc/reliable-topic (:job/id job))
+                            (:job/topic-bus (.get job-ref))))
+  
+  (.remove (cc/multi-map "scheduler/jobs")
+           (cluster/local-member-uuid)
+           (:job/id job)))
+
+(defmethod run [:job/t :job.state/waiting]
+  [job-ref]
+  (let [job (.get job-ref)]
+    (unschedule job)
+    job))
+
+(defmethod run :default
+  [job-ref]
+  (assoc (.get job-ref) :job/state :job.state/waiting))
 
 (defn- scheduler-membership-listener
   []
@@ -35,12 +72,13 @@
   [job-id exec tasks]
   (let [job-ref (cc/atomic-reference job-id)
         scheduled-future (.schedule exec
-                                    (fn [] (run job-ref))
+                                    ^Callable (fn [] (run job-ref))
                                     (:job/timeout (.get job-ref))
                                     TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
     (future
-      @scheduled-future
+      (when-let [job @scheduled-future]
+        (.set job-ref job))
       (when-not (.isCancelled scheduled-future)
         (run-job job-id exec tasks)))))
 
@@ -86,19 +124,6 @@
         (assoc this :jobs nil :exec nil))
       this)))
 
-(defn schedule
-  [job]
-  (.set (cc/atomic-reference (:job/id job)) job)
-  (.put (cc/multi-map "scheduler/jobs")
-        (cluster/local-member-uuid)
-        (:job/id job)))
-
-(defn unschedule
-  [job]
-  (.remove (cc/multi-map "scheduler/jobs")
-           (cluster/local-member-uuid)
-           (:job/id job)))
-
 (defn reschedule
   [job]
   (unschedule job)
@@ -107,4 +132,5 @@
 (defmethod run [:job/tracker :continue-tracking]
   [job-ref]
   (let [job (.get job-ref)]
-    (println job)))
+    (println job)
+    (assoc job :job/state )))
