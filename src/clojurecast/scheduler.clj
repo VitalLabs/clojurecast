@@ -19,11 +19,14 @@
               (println outstanding-jobs))))))))
 
 (defn- job-entry-listener
-  []
+  [exec]
   (reify EntryListener
-    (entryAdded [_ e])
-    (entryUpdated [_ e])
-    (entryRemoved [_ e])))
+    (entryAdded [_ e]
+      (let [job-ref (cc/atomic-reference (.getValue e))]
+        (println :SCHEDULE job-ref)))
+    (entryRemoved [_ e]
+      (let [job-ref (cc/atomic-reference (.getOldValue e))]
+        (println :UNSCHEDULE job-ref)))))
 
 (defrecord Scheduler [^com.hazelcast.core.MultiMap jobs
                       ^ScheduledExecutorService exec
@@ -40,7 +43,7 @@
           :jobs jobs
           :exec exec
           :membership-listener-id (cluster/add-membership-listener listener)
-          :entry-listener-id (.addEntryListener jobs (job-entry-listener)
+          :entry-listener-id (.addEntryListener jobs (job-entry-listener exec)
                                                 (cluster/local-member-uuid)
                                                 true)))))
   (stop [this]
@@ -67,15 +70,8 @@
 
 (defn reschedule
   [job]
-  (.set (cc/atomic-reference (:job/id job)) job))
+  (unschedule job)
+  (schedule job))
 
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
 
-;; ;; (defmethod schedule [:job/t Object]
-;; ;;   [job]
-;; ;;   )
-
-;; {:job/id (java.util.UUID/randomUUID)
-;;  :job/type :job/tracker
-;;  :job/state :start
-;;  :job/schedule []}
