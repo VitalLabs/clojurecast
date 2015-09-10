@@ -10,21 +10,25 @@
 
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
 
-(defmulti handle-message :event/type)
+(defmulti handle-message (fn [message job-ref]
+                           [(:job/type (.get job-ref))
+                            (:event/type message)]))
 
 (defn- job-message-listener
-  []
+  [job-id]
   (reify MessageListener
     (onMessage [_ message]
-      (handle-message message))))
+      (handle-message message (cc/atomic-reference job-id)))))
 
 (defn schedule
   [job]
   (.set (cc/atomic-reference (:job/id job))
         (assoc job
           :job/timeout (:job/timeout job 0)
-          :job/topic-bus (.addMessageListener (cc/reliable-topic (:job/id job))
-                                              (job-message-listener))))
+          :job/state (:job/state job :job.state/running)
+          :job/topic-bus (.addMessageListener
+                          (cc/reliable-topic (:job/id job))
+                          (job-message-listener (:job/id job)))))
   (.put (cc/multi-map "scheduler/jobs")
         (cluster/local-member-uuid)
         (:job/id job)))
@@ -47,7 +51,7 @@
 (defmethod run [:job/t :job.state/resuming]
   [job-ref]
   (let [job (.get job-ref)]
-    (unschedule job)
+    (schedule job)
     (assoc job :job/state :job.state/running)))
 
 (defmethod run :default
