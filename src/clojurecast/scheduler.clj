@@ -33,7 +33,6 @@
   (let [job-ref (cc/atomic-reference (:job/id job))]
     (.removeMessageListener (cc/reliable-topic (:job/id job))
                             (:job/topic-bus (.get job-ref))))
-  
   (.remove (cc/multi-map "scheduler/jobs")
            (cluster/local-member-uuid)
            (:job/id job)))
@@ -78,9 +77,10 @@
     (swap! tasks assoc job-id scheduled-future)
     (future
       (when-let [job @scheduled-future]
-        (.set job-ref job))
-      (when-not (.isCancelled scheduled-future)
-        (run-job job-id exec tasks)))))
+        (.set job-ref job)
+        (when-not (or (.isCancelled scheduled-future)
+                      (= (:job/state job) :job.state/waiting))
+          (run-job job-id exec tasks))))))
 
 (defn- job-entry-listener
   [exec tasks]
@@ -89,8 +89,9 @@
       (run-job (.getValue e) exec tasks))
     (entryRemoved [_ e]
       (let [job-id (.getOldValue e)]
-        (.cancel (get tasks job-id) false)
-        (swap! tasks dissoc job-id)))))
+        (when-let [task (get tasks job-id)]
+          (.cancel task false)
+          (swap! tasks dissoc job-id))))))
 
 (defrecord Scheduler [^com.hazelcast.core.MultiMap jobs
                       ^ScheduledExecutorService exec
@@ -129,8 +130,8 @@
   (unschedule job)
   (schedule job))
 
-(defmethod run [:job/tracker :continue-tracking]
-  [job-ref]
-  (let [job (.get job-ref)]
-    (println job)
-    (assoc job :job/state )))
+;; (defmethod run [:job/tracker :continue-tracking]
+;;   [job-ref]
+;;   (let [job (.get job-ref)]
+;;     (println job)
+;;     (assoc job :job/state )))
