@@ -3,7 +3,13 @@
             [clojurecast.cluster :as cluster]
             [com.stuartsierra.component :as com])
   (:import [java.util.concurrent Executors ScheduledExecutorService]
-           [com.hazelcast.core Cluster MembershipListener EntryListener]))
+           [java.util.concurrent ScheduledThreadPoolExecutor]
+           [com.hazelcast.core Cluster MembershipListener EntryListener]
+           [java.util.concurrent TimeUnit]))
+
+(defmulti run (comp (juxt :job/type :job/state) #(.get %)))
+
+(defmethod run :default [job])
 
 (defn- scheduler-membership-listener
   []
@@ -18,26 +24,40 @@
             (when (seq outstanding-jobs)
               (println outstanding-jobs))))))))
 
+(defn- run-job
+  [job-id exec tasks]
+  (let [job-ref (cc/atomic-reference job-id)
+        scheduled-future (.schedule exec run (:job/timeout (.get job-ref))
+                                    TimeUnit/MILLISECONDS)]
+    (swap! tasks assoc job-id scheduled-future)
+    (future
+      @scheduled-future
+      (when-not (.isCancelled scheduled-future)
+        (run-job job-id exec job-ref)))))
+
 (defn- job-entry-listener
-  [exec]
+  [exec tasks]
   (reify EntryListener
     (entryAdded [_ e]
-      (let [job-ref (cc/atomic-reference (.getValue e))]
-        (println :SCHEDULE job-ref)))
+      (run-job (.getValue e) exec tasks))
     (entryRemoved [_ e]
-      (let [job-ref (cc/atomic-reference (.getOldValue e))]
-        (println :UNSCHEDULE job-ref)))))
+      (let [job-id (.getOldValue e)
+            job-ref (cc/atomic-reference (.getOldValue e))]
+        (.cancel (get tasks job-id) false)
+        (swap! tasks dissoc job-id)))))
 
 (defrecord Scheduler [^com.hazelcast.core.MultiMap jobs
                       ^ScheduledExecutorService exec
                       ^String membership-listener-id
-                      ^String entry-listener-id]
+                      ^String entry-listener-id
+                      tasks]
   com/Lifecycle
   (start [this]
     (if exec
       this
       (let [jobs (cc/multi-map "scheduler/jobs")
-            exec (Executors/newSingleThreadScheduledExecutor)
+            exec (doto (Executors/newScheduledThreadPool 1)
+                   (.setRemoveOnCancelPolicy true))
             listener (scheduler-membership-listener)]
         (assoc this
           :jobs jobs
@@ -45,7 +65,8 @@
           :membership-listener-id (cluster/add-membership-listener listener)
           :entry-listener-id (.addEntryListener jobs (job-entry-listener exec)
                                                 (cluster/local-member-uuid)
-                                                true)))))
+                                                true)
+          :tasks (atom {})))))
   (stop [this]
     (if exec
       (do
@@ -72,6 +93,3 @@
   [job]
   (unschedule job)
   (schedule job))
-
-(defmulti run (comp (juxt :job/type :job/state) #(.get %)))
-
