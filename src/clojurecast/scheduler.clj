@@ -20,20 +20,29 @@
       (memberRemoved [_ e]
         (when (cluster/is-master?)
           (let [removed-member (.getMember e)
-                outstanding-jobs (.get jobs (.getUuid removed-member))]
-            (when (seq outstanding-jobs)
-              (println outstanding-jobs))))))))
+                outstanding (.get jobs (.getUuid removed-member))]
+            (when (seq outstanding)              
+              (loop [members (map #(.getUuid %) (cluster/members))
+                     parts (partition (count (cluster/members)) outstanding)]
+                (when (seq members)
+                  (let [member (first members)
+                        jobs (first parts)]
+                    (doseq [job jobs]
+                      (.put (cc/multi-map "scheduler/jobs") member job))
+                    (recur (next members) (next jobs))))))))))))
 
 (defn- run-job
   [job-id exec tasks]
   (let [job-ref (cc/atomic-reference job-id)
-        scheduled-future (.schedule exec run (:job/timeout (.get job-ref))
+        scheduled-future (.schedule exec
+                                    (fn [] (run job-ref))
+                                    (:job/timeout (.get job-ref))
                                     TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
     (future
       @scheduled-future
       (when-not (.isCancelled scheduled-future)
-        (run-job job-id exec job-ref)))))
+        (run-job job-id exec tasks)))))
 
 (defn- job-entry-listener
   [exec tasks]
@@ -41,8 +50,7 @@
     (entryAdded [_ e]
       (run-job (.getValue e) exec tasks))
     (entryRemoved [_ e]
-      (let [job-id (.getOldValue e)
-            job-ref (cc/atomic-reference (.getOldValue e))]
+      (let [job-id (.getOldValue e)]
         (.cancel (get tasks job-id) false)
         (swap! tasks dissoc job-id)))))
 
@@ -95,3 +103,8 @@
   [job]
   (unschedule job)
   (schedule job))
+
+(defmethod run [:job/tracker :continue-tracking]
+  [job-ref]
+  (let [job (.get job-ref)]
+    (println job)))
