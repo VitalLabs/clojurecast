@@ -22,6 +22,7 @@
   [job]
   (.set (cc/atomic-reference (:job/id job))
         (assoc job
+          :job/timeout (:job/timeout job 0)
           :job/topic-bus (.addMessageListener (cc/reliable-topic (:job/id job))
                                               (job-message-listener))))
   (.put (cc/multi-map "scheduler/jobs")
