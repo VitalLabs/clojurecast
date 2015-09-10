@@ -78,6 +78,7 @@
     (swap! tasks assoc job-id scheduled-future)
     (future
       (when-let [job @scheduled-future]
+        (swap! tasks dissoc job-id)
         (.set job-ref job)
         (when-not (or (.isCancelled scheduled-future)
                       (= (:job/state job) :job.state/waiting))
