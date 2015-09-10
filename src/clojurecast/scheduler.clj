@@ -26,9 +26,9 @@
                      parts (partition (count (cluster/members)) outstanding)]
                 (when (seq members)
                   (let [member (first members)
-                        jobs (first parts)]
-                    (doseq [job jobs]
-                      (.put (cc/multi-map "scheduler/jobs") member job))
+                        job-uuids (first parts)]
+                    (doseq [uuid job-uuids]
+                      (.put jobs member uuid))
                     (recur (next members) (next jobs))))))))))))
 
 (defn- run-job
