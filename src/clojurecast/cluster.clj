@@ -15,6 +15,10 @@
   []
   (.getMembers (cc/cluster)))
 
+(defn ^String local-member-uuid
+  []
+  (.getUuid (local-member)))
+
 (defn ^com.hazelcast.core.IMap membership-listeners
   []
   (cc/distributed-map "cluster/membership-listeners"))
