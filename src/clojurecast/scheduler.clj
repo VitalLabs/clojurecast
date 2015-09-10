@@ -58,15 +58,17 @@
       (let [jobs (cc/multi-map "scheduler/jobs")
             exec (doto (Executors/newScheduledThreadPool 1)
                    (.setRemoveOnCancelPolicy true))
-            listener (scheduler-membership-listener)]
+            tasks (atom {})
+            listener (scheduler-membership-listener)
+            job-listener (job-entry-listener exec tasks)]
         (assoc this
           :jobs jobs
           :exec exec
           :membership-listener-id (cluster/add-membership-listener listener)
-          :entry-listener-id (.addEntryListener jobs (job-entry-listener exec)
+          :entry-listener-id (.addEntryListener jobs job-listener
                                                 (cluster/local-member-uuid)
                                                 true)
-          :tasks (atom {})))))
+          :tasks tasks))))
   (stop [this]
     (if exec
       (do
