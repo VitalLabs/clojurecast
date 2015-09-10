@@ -9,13 +9,17 @@
   []
   (let [jobs (cc/multi-map "scheduler/jobs")]
     (reify MembershipListener
-      (memberAdded [_ e])
+      (memberAdded [_ e]
+        (when (cluster/is-master?)
+          (println :ADDED (.getMember e))))
       (memberAttributeChanged [_ e])
-      (memberRemoved [_ e]))))
+      (memberRemoved [_ e]
+        (when (cluster/is-master?)
+          (println :REMOVED (.getMember e)))))))
 
 (defrecord Scheduler [^com.hazelcast.core.MultiMap jobs
                       ^ScheduledExecutorService exec
-                      ^String listener-id]
+                      ^String registration-id]
   com/Lifecycle
   (start [this]
     (if exec
@@ -23,13 +27,23 @@
       (let [jobs (cc/multi-map "scheduler/jobs")
             exec (Executors/newSingleThreadScheduledExecutor)
             listener (scheduler-membership-listener)]
-        (cluster/add-membership-listener listener :id "scheduler/jobs")
         (assoc this
           :jobs jobs
-          :exec exec))))
+          :exec exec
+          :registration-id (cluster/add-membership-listener listener)))))
   (stop [this]
     (if exec
       (do
         (.shutdown exec)
-        (assoc this :jobs nil :exec nil))
+        (cluster/remove-membership-listener registration-id)
+        (assoc this :jobs nil :exec nil :registration-id nil))
       this)))
+
+(defmulti schedule (juxt :job/type (comp class :job/schedule)))
+
+(defmulti unschedule (juxt :job/type (comp class :job/schedule)))
+
+(defmulti reschedule (juxt :job/type (comp class :job/schedule)))
+
+(defmulti run (comp (juxt :job/type :job/state) #(.get %)))
+

@@ -34,3 +34,7 @@
       (.remove (membership-listeners) id)
       (.removeMembershipListener (cc/cluster) registration-id))
     (.removeMembershipListener (cc/cluster) id)))
+
+(defn is-master?
+  []
+  (identical? (first (members)) (local-member)))

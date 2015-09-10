@@ -6,14 +6,18 @@
 
 (def system nil)
 
+(defn make-system
+  []
+  (com/system-map
+   :node (cc/map->Node {})
+   :scheduler (com/using (scheduler/map->Scheduler {})
+                         [:node])))
+
 (defn init
   "Creates and initializes the system under development in the Var
   #'system."
   []
-  (.bindRoot #'system (com/system-map
-                       :node (cc/map->Node {})
-                       :scheduler (com/using (scheduler/map->Scheduler {})
-                                             [:node]))))
+  (.bindRoot #'system (make-system)))
 
 (defn start
   "Starts the system running, updates the Var #'system."
