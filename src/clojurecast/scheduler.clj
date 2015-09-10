@@ -130,8 +130,4 @@
   (unschedule job)
   (schedule job))
 
-;; (defmethod run [:job/tracker :continue-tracking]
-;;   [job-ref]
-;;   (let [job (.get job-ref)]
-;;     (println job)
-;;     (assoc job :job/state )))
+

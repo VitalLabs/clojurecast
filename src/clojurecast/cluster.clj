@@ -3,9 +3,7 @@
             [com.stuartsierra.component :as com])
   (:import [com.hazelcast.core Cluster]))
 
-(defn ^long current-time-millis
-  []
-  (.getClusterTime (cc/cluster)))
+(defn current-time-millis ^long [] (.getClusterTime (cc/cluster)))
 
 (defn ^com.hazelcast.core.Member local-member
   []

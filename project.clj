@@ -1,4 +1,4 @@
-(defproject clojurecast "0.1.0-SNAPSHOT"
+(defproject org.clojurecast/clojurecast "0.1.0-SNAPSHOT"
   :description ""
   :url ""
   :license {:name "Proprietary"}
