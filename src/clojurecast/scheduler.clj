@@ -14,23 +14,30 @@
 
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
 
-(defmulti handle-message (fn [message job-ref]
+(defmulti handle-message (fn [job-ref message]
                            [(:job/type (.get job-ref))
                             (:event/type message)]))
 
 (defmethod handle-message :default
-  [message job-ref]
-  (println message)
-  (assoc (.get job-ref) :job/state :job.state/running))
+  [job-ref message]
+  (assoc (.get job-ref)
+    :job/state :job.state/running
+    :job/timeout 0))
+
+(defmethod handle-message [:job/t :job/touch]
+  [job-ref message]
+  (assoc (.get job-ref)
+    :job/state :job.state/running
+    :job/timeout 0))
 
 (defn- job-message-listener
   [job-id]
   (reify MessageListener
     (onMessage [_ message]
       (let [job-ref (cc/atomic-reference job-id)
-            job (handle-message (.getMessageObject message) job-ref)]
+            job (handle-message job-ref (.getMessageObject message))]
         (.set job-ref job)
-        (reschedule (.get job-ref))))))
+        (reschedule job)))))
 
 (defn schedule
   [job]
@@ -38,9 +45,10 @@
         (assoc job
           :job/timeout (:job/timeout job 0)
           :job/state (:job/state job :job.state/running)
-          :job/topic-bus (.addMessageListener
-                          (cc/reliable-topic (:job/id job))
-                          (job-message-listener (:job/id job)))))
+          :job/topic-bus (or (:job/topic-bus job)
+                             (.addMessageListener
+                              (cc/reliable-topic (:job/id job))
+                              (job-message-listener (:job/id job))))))
   (.put (cc/multi-map "scheduler/jobs")
         (cluster/local-member-uuid)
         (:job/id job)))
@@ -48,8 +56,9 @@
 (defn unschedule
   [job]
   (let [job-ref (cc/atomic-reference (:job/id job))]
-    (.removeMessageListener (cc/reliable-topic (:job/id job))
-                            (:job/topic-bus (.get job-ref))))
+    (when (:job/topic-bus (.get job-ref))
+      (.removeMessageListener (cc/reliable-topic (:job/id job))
+                              (:job/topic-bus (.get job-ref)))))
   (.remove (cc/multi-map "scheduler/jobs")
            (cluster/local-member-uuid)
            (:job/id job)))
@@ -57,18 +66,19 @@
 (defmethod run [:job/t :job.state/pausing]
   [job-ref]
   (let [job (.get job-ref)]
-    (unschedule job)
-    (assoc job :job/state :job.state/paused)))
-
-(defmethod run [:job/t :job.state/resuming]
-  [job-ref]
-  (let [job (.get job-ref)]
-    (schedule job)
-    (assoc job :job/state :job.state/running)))
+    (clojure.tools.logging/debug :PAUSING)
+    (.remove (cc/multi-map "scheduler/jobs")
+             (cluster/local-member-uuid)
+             (:job/id job))
+    (assoc job
+      :job/state :job.state/paused
+      :job/timeout 0)))
 
 (defmethod run :default
   [job-ref]
-  (assoc (.get job-ref) :job/state :job.state/pausing))
+  (assoc (.get job-ref)
+    :job/state :job.state/pausing
+    :job/timeout 0))
 
 (defn- scheduler-membership-listener
   []
@@ -153,7 +163,12 @@
 
 (defn reschedule
   [job]
-  (unschedule job)
-  (schedule job))
+  (let []
+    (.remove (cc/multi-map "scheduler/jobs")
+             (cluster/local-member-uuid)
+             (:job/id job))
+    (.put (cc/multi-map "scheduler/jobs")
+          (cluster/local-member-uuid)
+          (:job/id job))))
 
 
