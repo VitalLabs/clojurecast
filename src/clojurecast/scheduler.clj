@@ -107,7 +107,9 @@
                                     ^Callable (fn []
                                                 (binding [*job* job-ref]
                                                   (run job-ref)))
-                                    (:job/timeout (.get job-ref))
+                                    (if (seq clojure.test/*testing-vars*)
+                                      0
+                                      (:job/timeout (.get job-ref)))
                                     TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
     (future
