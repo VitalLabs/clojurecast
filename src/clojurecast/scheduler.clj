@@ -28,7 +28,7 @@
   (reify MessageListener
     (onMessage [_ message]
       (let [job-ref (cc/atomic-reference job-id)
-            job (handle-message message job-ref)]
+            job (handle-message (.getMessageObject message) job-ref)]
         (.set job-ref job)
         (reschedule (.get job-ref))))))
 
