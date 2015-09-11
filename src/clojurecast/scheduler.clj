@@ -20,7 +20,8 @@
 
 (defmethod handle-message :default
   [message job-ref]
-  (.get job-ref))
+  (println message)
+  (assoc (.get job-ref) :job/state :job.state/running))
 
 (defn- job-message-listener
   [job-id]
