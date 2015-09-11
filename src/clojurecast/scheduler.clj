@@ -8,6 +8,8 @@
            [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
 
+(def ^:dynamic *job*)
+
 (declare reschedule)
 
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
@@ -91,7 +93,9 @@
   [job-id exec tasks]
   (let [job-ref (cc/atomic-reference job-id)
         scheduled-future (.schedule exec
-                                    ^Callable (fn [] (run job-ref))
+                                    ^Callable (fn []
+                                                (binding [*job* job-ref]
+                                                  (run job-ref)))
                                     (:job/timeout (.get job-ref))
                                     TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
