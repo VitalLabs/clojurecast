@@ -26,15 +26,15 @@
 
 (defn ^com.hazelcast.core.IAtomicLong atomic-long
   ([] (atomic-long "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getAtomicLong *instance* name)))
+   (.getAtomicLong *instance* (str name))))
 
 (defn ^com.hazelcast.core.IAtomicReference atomic-reference
   ([] (atomic-reference "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getAtomicReference *instance* name)))
+   (.getAtomicReference *instance* (str name))))
 
 (defn ^com.hazelcast.core.ClientService client-service
   []
@@ -53,9 +53,9 @@
 
 (defn ^com.hazelcast.core.ICountDownLatch count-down-latch
   ([] (count-down-latch "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getCountDownLatch *instance* name)))
+   (.getCountDownLatch *instance* (str name))))
 
 (defn ^java.util.Collection distributed-objects
   []
@@ -64,21 +64,21 @@
 
 (defn ^com.hazelcast.core.IExecutorService executor-service
   ([] (executor-service "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getExecutorService *instance* name)))
+   (.getExecutorService *instance* (str name))))
 
 (defn ^com.hazelcast.core.IdGenerator id-generator
   ([] (id-generator "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getIdGenerator *instance* name)))
+   (.getIdGenerator *instance* (str name))))
 
 (defn ^com.hazelcast.mapreduce.JobTracker job-tracker
   ([] (job-tracker "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getJobTracker *instance* name)))
+   (.getJobTracker *instance* (str name))))
 
 (defn ^com.hazelcast.core.LifecycleService lifecycle-service
   []
@@ -87,9 +87,9 @@
 
 (defn ^com.hazelcast.core.IList distributed-list
   ([] (distributed-list "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getList *instance* name)))
+   (.getList *instance* (str name))))
 
 (defn ^com.hazelcast.core.Endpoint local-endpoint
   []
@@ -98,9 +98,9 @@
 
 (defn ^com.hazelcast.core.ILock lock
   ([] (lock "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getLock *instance* name)))
+   (.getLock *instance* (str name))))
 
 (defn ^com.hazelcast.logging.LoggingService logging-service
   []
@@ -109,15 +109,15 @@
 
 (defn ^com.hazelcast.core.IMap distributed-map
   ([] (distributed-map "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getMap *instance* name)))
+   (.getMap *instance* (str name))))
 
 (defn ^com.hazelcast.core.MultiMap multi-map
   ([] (multi-map "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getMultiMap *instance* name)))
+   (.getMultiMap *instance* (str name))))
 
 (defn ^String instance-name
   []
@@ -131,9 +131,9 @@
 
 (defn ^com.hazelcast.core.IQueue queue
   ([] (queue "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getQueue *instance* name)))
+   (.getQueue *instance* (str name))))
 
 (defn ^com.hazelcast.quorum.QuorumService quorum-service
   []
@@ -142,39 +142,39 @@
 
 (defn ^com.hazelcast.core.ITopic reliable-topic
   ([] (reliable-topic "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getReliableTopic *instance* name)))
+   (.getReliableTopic *instance* (str name))))
 
 (defn ^com.hazelcast.core.ReplicatedMap replicated-map
   ([] (replicated-map "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getReplicatedMap *instance* name)))
+   (.getReplicatedMap *instance* (str name))))
 
 (defn ^com.hazelcast.ringbuffer.Ringbuffer ring-buffer
   ([] (ring-buffer "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getRingbuffer *instance* name)))
+   (.getRingbuffer *instance* (str name))))
 
 (defn ^com.hazelcast.core.ISemaphore semaphore
   ([] (semaphore "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getSemaphore *instance* name)))
+   (.getSemaphore *instance* (str name))))
 
 (defn ^com.hazelcast.core.ISet distributed-set
   ([] (distributed-set "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getSet *instance* name)))
+   (.getSet *instance* (str name))))
 
 (defn ^com.hazelcast.core.ITopic topic
   ([] (topic "default"))
-  ([^String name]
+  ([name]
    {:pre [*instance*]}
-   (.getTopic *instance* name)))
+   (.getTopic *instance* (str name))))
 
 (defn ^java.util.concurrent.ConcurrentMap user-context
   []

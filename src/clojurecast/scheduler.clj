@@ -8,17 +8,26 @@
            [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
 
+(declare reschedule)
+
 (defmulti run (comp (juxt :job/type :job/state) #(.get %)))
 
 (defmulti handle-message (fn [message job-ref]
                            [(:job/type (.get job-ref))
                             (:event/type message)]))
 
+(defmethod handle-message :default
+  [message job-ref]
+  (.get job-ref))
+
 (defn- job-message-listener
   [job-id]
   (reify MessageListener
     (onMessage [_ message]
-      (handle-message message (cc/atomic-reference job-id)))))
+      (let [job-ref (cc/atomic-reference job-id)
+            job (handle-message message job-ref)]
+        (.set job-ref job)
+        (reschedule (.get job-ref))))))
 
 (defn schedule
   [job]
