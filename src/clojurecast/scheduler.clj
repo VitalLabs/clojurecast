@@ -8,6 +8,8 @@
            [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
 
+(def ^:dynamic *test-mode* false)
+
 (def ^:dynamic *job*)
 
 (declare reschedule)
@@ -107,7 +109,7 @@
                                     ^Callable (fn []
                                                 (binding [*job* job-ref]
                                                   (run job-ref)))
-                                    (if (seq clojure.test/*testing-vars*)
+                                    (if *test-mode*
                                       0
                                       (:job/timeout (.get job-ref)))
                                     TimeUnit/MILLISECONDS)]
