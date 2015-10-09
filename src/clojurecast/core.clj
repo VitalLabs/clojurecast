@@ -1,6 +1,7 @@
 (ns clojurecast.core
   (:require [com.stuartsierra.component :as com])
-  (:import [com.hazelcast.core Hazelcast HazelcastInstance]))
+  (:import [com.hazelcast.core Hazelcast HazelcastInstance]
+           [java.util.concurrent TimeUnit]))
 
 (def ^:dynamic ^HazelcastInstance *instance*)
 
@@ -17,7 +18,13 @@
   (stop [this]
     (if instance
       (do
-        (.shutdown instance)
+        (if (.isClusterSafe (.getPartitionService instance))
+          (.shutdown instance)
+          (do
+            (.forceLocalMemberToBeSafe (.getPartitionService instance)
+                                       10000
+                                       TimeUnit/MILLISECONDS)
+            (.shutdown instance)))
         (if (thread-bound? #'*instance*)
           (set! *instance* nil)
           (.bindRoot #'*instance* nil))

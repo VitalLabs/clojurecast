@@ -68,7 +68,6 @@
 (defmethod run [:job/t :job.state/pausing]
   [job-ref]
   (let [job (.get job-ref)]
-    (clojure.tools.logging/debug :PAUSING)
     (.remove (cc/multi-map "scheduler/jobs")
              (cluster/local-member-uuid)
              (:job/id job))
