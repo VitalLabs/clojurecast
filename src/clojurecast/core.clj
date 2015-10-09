@@ -18,13 +18,11 @@
   (stop [this]
     (if instance
       (do
-        (if (.isClusterSafe (.getPartitionService instance))
-          (.shutdown instance)
-          (do
-            (.forceLocalMemberToBeSafe (.getPartitionService instance)
-                                       10000
-                                       TimeUnit/MILLISECONDS)
-            (.shutdown instance)))
+        (when-not (.isClusterSafe (.getPartitionService instance))
+          (.forceLocalMemberToBeSafe (.getPartitionService instance)
+                                     10000
+                                     TimeUnit/MILLISECONDS))
+        (.shutdown instance)
         (if (thread-bound? #'*instance*)
           (set! *instance* nil)
           (.bindRoot #'*instance* nil))
