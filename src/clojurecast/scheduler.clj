@@ -3,10 +3,12 @@
             [clojurecast.cluster :as cluster]
             [com.stuartsierra.component :as com])
   (:import [java.util.concurrent Executors ScheduledExecutorService]
-           [java.util.concurrent ScheduledThreadPoolExecutor]
+           [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
            [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
+
+(set! *warn-on-reflection* true)
 
 (def ^:dynamic *jobs-name* "scheduler/jobs")
 
@@ -16,20 +18,22 @@
 
 (declare reschedule)
 
-(defmulti run (comp (juxt :job/type :job/state) #(.get %)))
+(defmulti run (comp (juxt :job/type :job/state)
+                    #(.get ^com.hazelcast.core.IAtomicReference %)))
 
-(defmulti handle-message (fn [job-ref message]
+(defmulti handle-message (fn [^com.hazelcast.core.IAtomicReference job-ref
+                              message]
                            [(:job/type (.get job-ref))
                             (:event/type message)]))
 
 (defmethod handle-message :default
-  [job-ref message]
+  [^com.hazelcast.core.IAtomicReference job-ref message]
   (assoc (.get job-ref)
     :job/state :job.state/running
     :job/timeout 0))
 
 (defmethod handle-message [:job/t :job/touch]
-  [job-ref message]
+  [^com.hazelcast.core.IAtomicReference job-ref message]
   (assoc (.get job-ref)
     :job/state :job.state/running
     :job/timeout 0))
@@ -68,7 +72,7 @@
            (:job/id job)))
 
 (defmethod run [:job/t :job.state/pausing]
-  [job-ref]
+  [^com.hazelcast.core.IAtomicReference job-ref]
   (let [job (.get job-ref)]
     (.remove (cc/multi-map *jobs-name*)
              (cluster/local-member-uuid)
@@ -78,7 +82,7 @@
       :job/timeout 0)))
 
 (defmethod run :default
-  [job-ref]
+  [^com.hazelcast.core.IAtomicReference job-ref]
   (assoc (.get job-ref)
     :job/state :job.state/pausing
     :job/timeout 0))
@@ -94,7 +98,8 @@
           (let [removed-member (.getMember e)
                 outstanding (.get jobs (.getUuid removed-member))]
             (when (seq outstanding)              
-              (loop [members (map #(.getUuid %) (cluster/members))
+              (loop [members (map #(.getUuid ^com.hazelcast.core.Member %)
+                                  (cluster/members))
                      parts (partition (count (cluster/members)) outstanding)]
                 (when (seq members)
                   (let [member (first members)
@@ -104,7 +109,7 @@
                     (recur (next members) (next jobs))))))))))))
 
 (defn- ^Callable job-callable
-  [job-ref]
+  [^com.hazelcast.core.IAtomicReference job-ref]
   (fn []
     (try
       (binding [*job* job-ref]
@@ -119,19 +124,24 @@
             :job/error e
             :job/timeout 0))))))
 
+(defn- job-timeout
+  ^long [^com.hazelcast.core.IAtomicReference job-ref]
+  (if *test-mode*
+    0
+    (:job/timeout (.get job-ref))))
+
 (defn- run-job
-  [job-id exec tasks]
+  [job-id ^ScheduledThreadPoolExecutor exec tasks]
   (let [job-ref (cc/atomic-reference job-id)
-        scheduled-future (.schedule exec
-                                    (job-callable job-ref)
-                                    (if *test-mode*
-                                      0
-                                      (:job/timeout (.get job-ref)))
-                                    TimeUnit/MILLISECONDS)]
+        ^ScheduledFuture scheduled-future
+        (.schedule exec
+                   (job-callable job-ref)
+                   (job-timeout job-ref)
+                   TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
     (future
+      (swap! tasks dissoc job-id)
       (when-let [job @scheduled-future]
-        (swap! tasks dissoc job-id)
         (.set job-ref job)
         (cond
           (.isCancelled scheduled-future) :cancel
@@ -146,7 +156,7 @@
       (run-job (.getValue e) exec tasks))
     (entryRemoved [_ e]
       (let [job-id (.getOldValue e)]
-        (when-let [task (get tasks job-id)]
+        (when-let [^ScheduledFuture task (get tasks job-id)]
           (.cancel task false)
           (swap! tasks dissoc job-id))))))
 
@@ -160,7 +170,8 @@
     (if exec
       this
       (let [jobs (cc/multi-map *jobs-name*)
-            exec (doto (Executors/newScheduledThreadPool 1)
+            exec (doto ^ScheduledThreadPoolExecutor
+                     (Executors/newScheduledThreadPool 1)
                    (.setRemoveOnCancelPolicy true))
             tasks (atom {})
             listener (scheduler-membership-listener)
