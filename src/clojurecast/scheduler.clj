@@ -8,6 +8,8 @@
            [com.hazelcast.core MessageListener]
            [java.util.concurrent TimeUnit]))
 
+(def ^:dynamic *jobs-name* "scheduler/jobs")
+
 (def ^:dynamic *test-mode* false)
 
 (def ^:dynamic *job*)
@@ -51,7 +53,7 @@
                              (.addMessageListener
                               (cc/reliable-topic (:job/id job))
                               (job-message-listener (:job/id job))))))
-  (.put (cc/multi-map "scheduler/jobs")
+  (.put (cc/multi-map *jobs-name*)
         (cluster/local-member-uuid)
         (:job/id job)))
 
@@ -61,14 +63,14 @@
     (when (:job/topic-bus (.get job-ref))
       (.removeMessageListener (cc/reliable-topic (:job/id job))
                               (:job/topic-bus (.get job-ref)))))
-  (.remove (cc/multi-map "scheduler/jobs")
+  (.remove (cc/multi-map *jobs-name*)
            (cluster/local-member-uuid)
            (:job/id job)))
 
 (defmethod run [:job/t :job.state/pausing]
   [job-ref]
   (let [job (.get job-ref)]
-    (.remove (cc/multi-map "scheduler/jobs")
+    (.remove (cc/multi-map *jobs-name*)
              (cluster/local-member-uuid)
              (:job/id job))
     (assoc job
@@ -83,7 +85,7 @@
 
 (defn- scheduler-membership-listener
   []
-  (let [jobs (cc/multi-map "scheduler/jobs")]
+  (let [jobs (cc/multi-map *jobs-name*)]
     (reify MembershipListener
       (memberAdded [_ e])
       (memberAttributeChanged [_ e])
@@ -117,9 +119,10 @@
       (when-let [job @scheduled-future]
         (swap! tasks dissoc job-id)
         (.set job-ref job)
-        (when-not (or (.isCancelled scheduled-future)
-                      (= (:job/state job) :job.state/paused))
-          (run-job job-id exec tasks))))))
+        (cond
+          (.isCancelled scheduled-future) :cancel
+          (= (:job/state job) :job.state/paused) :pause
+          :else (run-job job-id exec tasks))))))
 
 (defn- job-entry-listener
   [exec tasks]
@@ -141,7 +144,7 @@
   (start [this]
     (if exec
       this
-      (let [jobs (cc/multi-map "scheduler/jobs")
+      (let [jobs (cc/multi-map *jobs-name*)
             exec (doto (Executors/newScheduledThreadPool 1)
                    (.setRemoveOnCancelPolicy true))
             tasks (atom {})
@@ -167,11 +170,10 @@
 (defn reschedule
   [job]
   (let []
-    (.remove (cc/multi-map "scheduler/jobs")
+    (.remove (cc/multi-map *jobs-name*)
              (cluster/local-member-uuid)
              (:job/id job))
-    (.put (cc/multi-map "scheduler/jobs")
+    (.put (cc/multi-map *jobs-name*)
           (cluster/local-member-uuid)
           (:job/id job))))
-
 
