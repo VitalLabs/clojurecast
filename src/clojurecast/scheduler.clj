@@ -103,13 +103,27 @@
                       (.put jobs member uuid))
                     (recur (next members) (next jobs))))))))))))
 
+(defn- ^Callable job-callable
+  [job-ref]
+  (fn []
+    (try
+      (binding [*job* job-ref]
+        (run job-ref))
+      (catch Throwable e
+        (let [job (.get job-ref)]
+          (.remove (cc/multi-map *jobs-name*)
+                   (cluster/local-member-uuid)
+                   (:job/id job))
+          (assoc job
+            :job/state :job.state/failed
+            :job/error e
+            :job/timeout 0))))))
+
 (defn- run-job
   [job-id exec tasks]
   (let [job-ref (cc/atomic-reference job-id)
         scheduled-future (.schedule exec
-                                    ^Callable (fn []
-                                                (binding [*job* job-ref]
-                                                  (run job-ref)))
+                                    (job-callable job-ref)
                                     (if *test-mode*
                                       0
                                       (:job/timeout (.get job-ref)))
@@ -122,6 +136,7 @@
         (cond
           (.isCancelled scheduled-future) :cancel
           (= (:job/state job) :job.state/paused) :pause
+          (= (:job/state job) :job.state/failed) :failed
           :else (run-job job-id exec tasks))))))
 
 (defn- job-entry-listener
