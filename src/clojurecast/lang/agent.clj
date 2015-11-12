@@ -112,7 +112,7 @@
 
   IWatchable
   (notifyWatches [this oldval newval]
-    (doseq [[k f] watches]
+    (doseq [[k f] (.get watches)]
       (f k this oldval newval)))
 
   clojure.lang.IReference
