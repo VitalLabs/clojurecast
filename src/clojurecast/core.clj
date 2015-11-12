@@ -1,4 +1,6 @@
 (ns clojurecast.core
+  (:refer-clojure :exclude [send agent-error shutdown-agents restart-agent agent
+                            await-for])
   (:require [com.stuartsierra.component :as com]
             [clojurecast.lang.atom :as atom]
             [clojurecast.lang.cache :as cache]
