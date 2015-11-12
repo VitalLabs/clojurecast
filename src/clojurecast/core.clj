@@ -248,3 +248,7 @@
   (doseq [^com.hazelcast.core.DistributedObject object (distributed-objects)]
     (.destroy object)))
 
+(load "lang/atom")
+(load "lang/cache")
+
+
