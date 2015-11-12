@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [send agent-error shutdown-agents restart-agent agent
                             await-for])
   (:require [com.stuartsierra.component :as com]
+            [clojurecast.lang.agent :as agent]
             [clojurecast.lang.atom :as atom]
             [clojurecast.lang.cache :as cache]
             [clojurecast.lang.buffers :as buffers])
@@ -253,3 +254,32 @@
   (doseq [^com.hazelcast.core.DistributedObject object (distributed-objects)]
     (.destroy object)))
 
+(defn ^{:private true}
+  setup-reference [^clojure.lang.ARef r options]
+  (let [opts (apply hash-map options)]
+    (when (:meta opts)
+      (.resetMeta r (:meta opts)))
+    (when (:validator opts)
+      (.setValidator r (:validator opts)))
+    r))
+
+(defn agent
+  ([]
+   (agent "default"))
+  ([name]
+   {:pre [*instance*]}
+   (agent *instance* name))
+  ([instance name]
+   (let [name (str name)
+         exec (executor-service instance "agent-send-pool")
+         state (atomic-reference (str name "-agent-state"))
+         counter (atomic-long instance (str name "-counter"))
+         action-queue (queue instance (str name "-action-queue"))
+         error (atomic-reference instance (str name "-agent-error"))
+         err-mode (atomic-reference instance (str name "-error-mode"))
+         ex-handler (atomic-reference instance (str name "-error-handler"))
+         vf-ref (atomic-reference instance (str name "-agent-vf"))
+         watches (atomic-reference instance (str name "-agent-watches"))
+         meta-ref (.getAtomicReference instance (str name "-agent-meta"))]
+     (agent/->Agent state exec counter action-queue error error-mode ex-handler
+                    vf-ref watches meta-ref name (ThreadLocal.)))))

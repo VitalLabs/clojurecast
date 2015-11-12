@@ -22,7 +22,7 @@
                 ^IAtomicReference error-mode
                 ^IAtomicReference error-handler
                 ^IAtomicReference validator
-                ^IMap watches
+                ^IAtomicReference watches
                 ^IAtomicReference meta
                 ^String name
                 ^ThreadLocal nested]
@@ -106,9 +106,9 @@
     (.validate this f (.get state))
     (.set validator f))
   (getValidator [_] (.get validator))
-  (getWatches [_] watches)
-  (addWatch [this k f] (.put watches k f))
-  (removeWatch [this k] (.remove watches k))
+  (getWatches [_] (.get watches))
+  (addWatch [this k f] (.set watches (.assoc (.get watches) k f)))
+  (removeWatch [this k] (.set watches (.without (.get watches) k)))
 
   IWatchable
   (notifyWatches [this oldval newval]
