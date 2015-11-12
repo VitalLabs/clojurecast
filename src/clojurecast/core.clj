@@ -1,6 +1,6 @@
 (ns clojurecast.core
   (:refer-clojure :exclude [send agent-error shutdown-agents restart-agent agent
-                            await-for])
+                            await-for atom])
   (:require [com.stuartsierra.component :as com]
             [clojurecast.lang.agent :as agent]
             [clojurecast.lang.atom :as atom]
@@ -273,19 +273,18 @@
    {:pre [*instance*]}
    (agent *instance* name))
   ([^HazelcastInstance instance name]
-   (let [name (str name)
-         exec (executor-service instance "agent-send-pool")
-         state (atomic-reference (str name "-agent-state"))
-         counter (atomic-long instance (str name "-counter"))
-         action-queue (queue instance (str name "-action-queue"))
-         error (atomic-reference instance (str name "-agent-error"))
-         err-mode (atomic-reference instance (str name "-error-mode"))
-         ex-handler (atomic-reference instance (str name "-error-handler"))
-         vf-ref (atomic-reference instance (str name "-agent-vf"))
-         watches (atomic-reference instance (str name "-agent-watches"))
-         meta-ref (.getAtomicReference instance (str name "-agent-meta"))]
-     (agent/->Agent state exec counter action-queue error error-mode ex-handler
-                    vf-ref watches meta-ref name (ThreadLocal.)))))
+   (agent/->Agent (atomic-reference (str name "-agent-state"))
+                  (executor-service instance "agent-send-pool")
+                  (atomic-long instance (str name "-counter"))
+                  (queue instance (str name "-action-queue"))
+                  (atomic-reference instance (str name "-agent-error"))
+                  (atomic-reference instance (str name "-error-mode"))
+                  (atomic-reference instance (str name "-error-handler"))
+                  (atomic-reference instance (str name "-agent-vf"))
+                  (atomic-reference instance (str name "-agent-watches"))
+                  (atomic-reference instance (str name "-agent-meta"))
+                  (str name)
+                  (ThreadLocal.))))
 
 (defn send
   [^clojurecast.lang.agent.Agent agent f & args]
@@ -314,4 +313,14 @@
         (send agent count-down))
       (.await latch timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS))))
 
-
+(defn atom
+  ([]
+   (atom "default"))
+  ([name]
+   {:pre [*instance*]}
+   (atom *instance* name))
+  ([^HazelcastInstance instance name]
+   (atom/->Atom (.getAtomicReference instance (str name))
+                (.getAtomicReference instance (str name "vf"))
+                (.getAtomicReference instance (str name "watcher"))
+                (.getAtomicReference instance (str name "meta")))))
