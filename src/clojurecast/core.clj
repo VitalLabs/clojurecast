@@ -1,5 +1,8 @@
 (ns clojurecast.core
-  (:require [com.stuartsierra.component :as com])
+  (:require [com.stuartsierra.component :as com]
+            [clojurecast.lang.atom :as atom]
+            [clojurecast.lang.cache :as cache]
+            [clojurecast.lang.buffers :as buffers])
   (:import [com.hazelcast.core Hazelcast HazelcastInstance]
            [java.util.concurrent TimeUnit]))
 
@@ -248,7 +251,3 @@
   (doseq [^com.hazelcast.core.DistributedObject object (distributed-objects)]
     (.destroy object)))
 
-(load "lang/atom")
-(load "lang/cache")
-(load "lang/buffers")
-(load "lang/channels")

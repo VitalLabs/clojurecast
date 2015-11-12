@@ -1,5 +1,4 @@
-(in-ns 'clojurecast.core)
-
-(require '[clojure.core.cache :as cache])
+(ns clojurecast.lang.cache
+  (:require [clojure.core.cache :as cache]))
 
 (deftype Cache [])

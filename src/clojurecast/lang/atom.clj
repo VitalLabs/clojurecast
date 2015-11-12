@@ -1,4 +1,4 @@
-(in-ns 'clojurecast.core)
+(ns clojurecast.lang.atom)
 
 (deftype Atom [])
 
