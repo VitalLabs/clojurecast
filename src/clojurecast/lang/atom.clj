@@ -65,11 +65,11 @@
 
   clojure.lang.IReference
   (meta [_]
-    (.get meta))
-  (alterMeta [_ f args]
-    (.set meta (apply f (.get meta) args)))
+    (util/thaw (.get meta)))
+  (alterMeta [this f args]
+    (.set meta (util/freeze (apply f (.meta this) args))))
   (resetMeta [_ m]
-    (.set meta m))
+    (.set meta (util/freeze m)))
 
   IValidate
   (validate [this val]
