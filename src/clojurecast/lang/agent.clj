@@ -1,4 +1,5 @@
 (ns clojurecast.lang.agent
+  (:require clojurecast.lang.interfaces)
   (:import [clojurecast.lang.interfaces IAgent IValidate IWatchable]
            [java.util.concurrent Executor]
            [com.hazelcast.core HazelcastInstance IAtomicReference IMap IQueue]
