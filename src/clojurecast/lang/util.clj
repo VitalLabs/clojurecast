@@ -9,8 +9,10 @@
 
 (defn freeze
   [x]
-  (nippy/freeze x (nippy-opts)))
+  (when x
+    (nippy/freeze x (nippy-opts))))
 
 (defn thaw
   [x]
-  (nippy/thaw x (nippy-opts)))
+  (when x
+    (nippy/thaw x (nippy-opts))))
