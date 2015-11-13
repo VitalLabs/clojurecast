@@ -1,5 +1,5 @@
 (ns clojurecast.lang.atom
-  (:require [taoensso.nippy :as nippy]
+  (:require [clojurecast.lang.util :as util]
             [clojurecast.lang.interfaces])
   (:import [com.hazelcast.core HazelcastInstance IAtomicReference]
            [clojurecast.lang.interfaces IValidate IWatchable]))
@@ -10,46 +10,48 @@
                ^IAtomicReference meta]
   clojure.lang.IAtom
   (swap [this f]
-    (let [oldval (.get state)
+    (let [oldval (.deref this)
           newval (f oldval)]
       (if (.compareAndSet this oldval newval)
         newval
         (recur f))))
   (swap [this f x]
-    (let [oldval (.get state)
+    (let [oldval (.deref this)
           newval (f oldval x)]
       (if (.compareAndSet this oldval newval)
         newval
         (recur f x))))
   (swap [this f x y]
-    (let [oldval (.get state)
+    (let [oldval (.deref this)
           newval (f oldval x y)]
       (if (.compareAndSet this oldval newval)
         newval
         (recur f x y))))
   (swap [this f x y args]
-    (let [oldval (.get state)
+    (let [oldval (.deref this)
           newval (apply f oldval x y args)]
       (if (.compareAndSet this oldval newval)
         newval
         (recur f x y args))))
   (compareAndSet [this oldval newval]
     (.validate this newval)
-    (let [ret (.compareAndSet state oldval newval)]
-      (when ret
-        (.notifyWatches this oldval newval))
+    (when-let [ret (.compareAndSet state
+                                   (util/freeze oldval)
+                                   (util/freeze newval))]
+      (.notifyWatches this oldval newval)
       ret))
   (reset [this newval]
-    (let [oldval (.get state)]
+    (let [oldval (.deref this)]
       (.validate this newval)
-      (.set state newval)
+      (.set state (util/freeze newval))
       (.notifyWatches this oldval newval)
       newval))
 
   clojure.lang.IRef
-  (deref [_] (.get state))
+  (deref [_]
+    (util/thaw (.get state)))
   (setValidator [this f]
-    (.validate this f (.get state))
+    (.validate this f (.deref this))
     (.set validator f))
   (getValidator [_] (.get validator))
   (getWatches [_] (.get watches))
@@ -62,7 +64,8 @@
       (f k this oldval newval)))
 
   clojure.lang.IReference
-  (meta [_] (.get meta))
+  (meta [_]
+    (.get meta))
   (alterMeta [_ f args]
     (.set meta (apply f (.get meta) args)))
   (resetMeta [_ m]
