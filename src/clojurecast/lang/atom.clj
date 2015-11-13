@@ -1,5 +1,6 @@
 (ns clojurecast.lang.atom
-  (:require clojurecast.lang.interfaces)
+  (:require [taoensso.nippy :as nippy]
+            [clojurecast.lang.interfaces])
   (:import [com.hazelcast.core HazelcastInstance IAtomicReference]
            [clojurecast.lang.interfaces IValidate IWatchable]))
 

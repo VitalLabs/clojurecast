@@ -1,5 +1,6 @@
 (ns clojurecast.lang.cache
   (:require [clojure.core.cache :as cache]
-            clojurecast.lang.interfaces))
+            [taoensso.nippy :as nippy]
+            [clojurecast.lang.interfaces]))
 
 (deftype Cache [])

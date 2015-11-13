@@ -7,7 +7,8 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns clojurecast.lang.buffers
-  (:require [clojure.core.async.impl.protocols :as impl])
+  (:require [clojure.core.async.impl.protocols :as impl]
+            [taoensso.nippy :as nippy])
   (:import [java.util LinkedList Queue]))
 
 (set! *warn-on-reflection* true)
