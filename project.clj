@@ -2,7 +2,7 @@
   :description ""
   :url ""
   :license {:name "Proprietary"}
-  :dependencies [[org.clojure/clojure "1.7.0"]
+  :dependencies [[org.clojure/clojure "1.8.0-RC1"]
                  [org.clojure/tools.logging "0.3.1"]
                  [org.clojure/core.async "0.2.374"]
                  [org.clojure/core.cache "0.6.4"]

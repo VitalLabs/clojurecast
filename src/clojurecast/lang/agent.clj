@@ -27,7 +27,8 @@
                 ^String name
                 ^ThreadLocal nested]
   IAgent
-  (dispatch [this f args] (.dispatch this f args exec))
+  (dispatch [this f args]
+    (.dispatch this f args exec))
   (dispatch [this f args exec]
     (when-let [err (.get error)]
       (throw (ex-info "Agent is failed, needs restart" {:error err})))
@@ -65,10 +66,14 @@
       (when ret
         (.set state newval))
       ret))
-  (setErrorMode [_ k] (.set error-mode k))
-  (getErrorMode [_] error-mode)
-  (setErrorHandler [_ f] (.set error-handler f))
-  (getErrorHandler [_] error-handler)
+  (setErrorMode [_ k]
+    (.set error-mode k))
+  (getErrorMode [_]
+    error-mode)
+  (setErrorHandler [_ f]
+    (.set error-handler f))
+  (getErrorHandler [_]
+    error-handler)
   (restart [this new-state clear-actions?]
     (when (nil? (.get error))
       (throw (ex-info "Agent does not need a restart" {:agent this})))
@@ -101,14 +106,19 @@
         (.offer action-queue action))))
   
   clojure.lang.IRef
-  (deref [_] (.get state))
+  (deref [_]
+    (.get state))
   (setValidator [this f]
     (.validate this f (.get state))
     (.set validator f))
-  (getValidator [_] (.get validator))
-  (getWatches [_] (.get watches))
-  (addWatch [this k f] (.set watches (.assoc (.get watches) k f)))
-  (removeWatch [this k] (.set watches (.without (.get watches) k)))
+  (getValidator [_]
+    (.get validator))
+  (getWatches [_]
+    (.get watches))
+  (addWatch [_ k f]
+    (.set watches (.assoc (.get watches) k f)))
+  (removeWatch [_ k]
+    (.set watches (.without (.get watches) k)))
 
   IWatchable
   (notifyWatches [this oldval newval]
@@ -116,7 +126,8 @@
       (f k this oldval newval)))
 
   clojure.lang.IReference
-  (meta [_] (.get meta))
+  (meta [_]
+    (.get meta))
   (alterMeta [_ f args]
     (.set meta (apply f (.get meta) args)))
   (resetMeta [_ m]
