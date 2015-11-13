@@ -8,7 +8,7 @@
   [name]
   ((resolve 'clojurecast.core/agent) name))
 
-(defn make-action
+(defn- make-action
   [name f args]
   (fn []
     (let [agent (find-agent name)]
