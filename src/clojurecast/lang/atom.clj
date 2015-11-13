@@ -53,10 +53,14 @@
   (setValidator [this f]
     (.validate this f (.deref this))
     (.set validator f))
-  (getValidator [_] (.get validator))
-  (getWatches [_] (.get watches))
-  (addWatch [this k f] (.set watches (.assoc (.get watches) k f)))
-  (removeWatch [this k] (.set watches (.without (.get watches) k)))
+  (getValidator [_]
+    (.get validator))
+  (getWatches [_]
+    (.get watches))
+  (addWatch [this k f]
+    (.set watches (.assoc (.get watches) k f)))
+  (removeWatch [this k]
+    (.set watches (.without (.get watches) k)))
 
   IWatchable
   (notifyWatches [this oldval newval]

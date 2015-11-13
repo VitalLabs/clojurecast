@@ -1,20 +1,12 @@
 (ns clojurecast.lang.agent
-  (:require [taoensso.nippy :as nippy]
+  (:require [clojurecast.lang.util :as util]
             [clojurecast.lang.interfaces])
   (:import [clojurecast.lang.interfaces IAgent IValidate IWatchable]
            [java.util.concurrent Executor]
            [com.hazelcast.core HazelcastInstance IAtomicReference IMap IQueue]
            [com.hazelcast.core IAtomicLong IExecutorService]))
 
-(defn- find-agent
-  [name]
-  ((resolve 'clojurecast.core/agent) name))
-
-(defn- make-action
-  [name f args]
-  (fn []
-    (let [agent (find-agent name)]
-      (.doRun agent f args))))
+(declare make-action)
 
 (deftype Agent [^IAtomicReference state
                 ^IExecutorService exec
@@ -146,4 +138,8 @@
       (catch Exception e
         (throw (IllegalStateException. "Invalid reference state" e))))))
 
-
+(defn- ^Runnable make-action
+  [name f args]
+  (fn []
+    (let [agent ((resolve 'clojurecast.core/agent) name)]
+      (.doRun ^clojurecast.lang.agent.Agent agent f args))))
