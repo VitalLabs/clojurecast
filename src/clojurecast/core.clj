@@ -1,7 +1,7 @@
 (ns clojurecast.core
   (:refer-clojure :exclude [send agent-error shutdown-agents restart-agent agent
                             await-for atom])
-  (:require [com.stuartsierra.component :as com]
+  (:require [clojurecast.component :as com]
             [clojurecast.lang.agent :as agent]
             [clojurecast.lang.atom :as atom]
             [clojurecast.lang.cache :as cache]
@@ -14,28 +14,28 @@
 (def ^:dynamic ^HazelcastInstance *instance*)
 
 (defrecord Node [^HazelcastInstance instance]
-  com/Lifecycle
-  (start [this]
-    (if instance
-      this
-      (let [instance (Hazelcast/newHazelcastInstance)]
-        (if (thread-bound? #'*instance*)
-          (set! *instance* instance)
-          (.bindRoot #'*instance* instance))
-        (assoc this :instance instance))))
-  (stop [this]
-    (if instance
-      (do
-        (when-not (.isClusterSafe (.getPartitionService instance))
-          (.forceLocalMemberToBeSafe (.getPartitionService instance)
-                                     10000
-                                     TimeUnit/MILLISECONDS))
-        (.shutdown instance)
-        (if (thread-bound? #'*instance*)
-          (set! *instance* nil)
-          (.bindRoot #'*instance* nil))
-        (assoc this :instance nil))
-      this)))
+  com/Component
+  (initialized? [_] true)
+  (started? [_] (boolean instance))
+  (migrate? [_] false)
+  (-init [this] this)
+  (-start [this]
+    (let [instance (Hazelcast/newHazelcastInstance)]
+      (if (thread-bound? #'*instance*)
+        (set! *instance* instance)
+        (.bindRoot #'*instance* instance))
+      (assoc this :instance instance)))
+  (-stop [this]
+    (when-not (.isClusterSafe (.getPartitionService instance))
+      (.forceLocalMemberToBeSafe (.getPartitionService instance)
+                                 10000
+                                 TimeUnit/MILLISECONDS))
+    (.shutdown instance)
+    (if (thread-bound? #'*instance*)
+      (set! *instance* nil)
+      (.bindRoot #'*instance* nil))
+    (assoc this :instance nil))
+  (-migrate [this] this))
 
 (defn ^com.hazelcast.core.IAtomicLong atomic-long
   ([] (atomic-long "default"))
