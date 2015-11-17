@@ -1,7 +1,7 @@
 (ns clojurecast.scheduler
   (:require [clojurecast.core :as cc]
             [clojurecast.cluster :as cluster]
-            [com.stuartsierra.component :as com])
+            [clojurecast.component :as com])
   (:import [java.util.concurrent Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
@@ -165,33 +165,33 @@
                       ^String membership-listener-id
                       ^String entry-listener-id
                       tasks]
-  com/Lifecycle
-  (start [this]
-    (if exec
-      this
-      (let [jobs (cc/multi-map *jobs-name*)
+  com/Component
+  (initialized? [_] true)
+  (started? [_] (boolean exec))
+  (migrate? [_] false)
+  (-init [this] this)
+  (-start [this]
+    (let [jobs (cc/multi-map *jobs-name*)
             exec (doto ^ScheduledThreadPoolExecutor
                      (Executors/newScheduledThreadPool 1)
                    (.setRemoveOnCancelPolicy true))
             tasks (atom {})
             listener (scheduler-membership-listener)
             job-listener (job-entry-listener exec tasks)]
-        (assoc this
+      (assoc this
           :jobs jobs
           :exec exec
           :membership-listener-id (cluster/add-membership-listener listener)
           :entry-listener-id (.addEntryListener jobs job-listener
                                                 (cluster/local-member-uuid)
                                                 true)
-          :tasks tasks))))
-  (stop [this]
-    (if exec
-      (do
-        (.shutdown exec)
-        (.removeEntryListener jobs entry-listener-id)
-        (cluster/remove-membership-listener membership-listener-id)
-        (assoc this :jobs nil :exec nil))
-      this)))
+          :tasks tasks)))
+  (-stop [this]
+    (.shutdown exec)
+    (.removeEntryListener jobs entry-listener-id)
+    (cluster/remove-membership-listener membership-listener-id)
+    (assoc this :jobs nil :exec nil))
+  (-migrate [this] this))
 
 (defn reschedule
   [job]
