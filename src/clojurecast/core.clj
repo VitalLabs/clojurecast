@@ -28,8 +28,8 @@
   (-stop [this]
     (when-not (.isClusterSafe (.getPartitionService instance))
       (.forceLocalMemberToBeSafe (.getPartitionService instance)
-                                 10000
-                                 TimeUnit/MILLISECONDS))
+                                 1 
+                                 TimeUnit/HOURS))
     (.shutdown instance)
     (if (thread-bound? #'*instance*)
       (set! *instance* nil)
