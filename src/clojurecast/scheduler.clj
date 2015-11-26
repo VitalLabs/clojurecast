@@ -96,7 +96,8 @@
       (memberRemoved [_ e]
         (when (cluster/is-master?)
           (let [removed-member (.getMember e)
-                outstanding (.get jobs (.getUuid removed-member))]
+                removed-id (.getUuid removed-member)
+                outstanding (.get jobs removed-id)]
             (when (seq outstanding)              
               (loop [members (map #(.getUuid ^com.hazelcast.core.Member %)
                                   (cluster/members))
@@ -107,7 +108,8 @@
                         job-uuids (first parts)]
                     (doseq [uuid job-uuids]
                       (.put jobs member uuid))
-                    (recur (next members) (next jobs))))))))))))
+                    (recur (next members) (next jobs))))))
+            (.remove jobs removed-id)))))))
 
 (defn- ^Callable job-callable
   [^com.hazelcast.core.IAtomicReference job-ref]
