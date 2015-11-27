@@ -101,7 +101,7 @@
             (when (seq outstanding)              
               (loop [members (map #(.getUuid ^com.hazelcast.core.Member %)
                                   (cluster/members))
-                     parts (partition-all (/ (count members) (count outstanding))
+                     parts (partition-all (/ (count outstanding) (count members))
                                           outstanding)]
                 (when (seq members)
                   (let [member (first members)
