@@ -198,7 +198,7 @@
 ;; - Unschedule
 
 (defn- ^MapListener job-entry-listener
-  [exec tasks]
+  [tasks]
   (reify
     EntryAddedListener
     (entryAdded [_ e]
