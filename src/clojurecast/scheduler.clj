@@ -7,8 +7,9 @@
   (:import [java.util.concurrent DelayQueue Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
-           [com.hazelcast.core MessageListener MapListener]
-           [com.hazelcast.core EntryAddedListener EntryRemovedListener]
+           [com.hazelcast.core MessageListener]
+           [com.hazelcast.map.listener MapListener]
+           [com.hazelcast.map.listener EntryAddedListener EntryRemovedListener]
            [java.util.concurrent TimeUnit]))
 
 (set! *warn-on-reflection* true)
@@ -92,35 +93,22 @@
     :job/state :job.state/pausing
     :job/timeout 0))
 
-(defn- move-job [jobs job-id old-member-id new-member-id]
-  ;; NOTE: Do this in an HC transaction? This can lose IDs in rare circumstances
-  (.remove jobs old-member-id job-id)
-  (.put jobs new-member-id job-id))
-
-(defn- ^Callable job-callable
-  [^com.hazelcast.core.IAtomicReference job-ref callback]
-  (fn []
-    (try
-      (binding [*job* job-ref]
-        (run *job*))
-      (catch Throwable e
-        (let [job (.get job-ref)]
-          (.remove (cluster-jobs) (:job/id job))
-          (assoc job
-            :job/state :job.state/failed
-            :job/error e
-            :job/timeout 0))))))
-
 (defn get-task
   [job-id]
   {:pre [*scheduler*]}
   (get (:tasks *scheduler*) job-id))
 
+(defn cancel-task
+  [job-id]
+  {:pre [*scheduler*]}
+  (when-let [task (get-task job-id)]
+    (async/close! task)))
+
 (defn remove-task
   [job-id]
   {:pre [*scheduler*]}
   (when-let [task (get-task job-id)]
-    (cancel-task old-task)
+    (cancel-task task)
     (swap! (:tasks *scheduler*) dissoc job-id)
     task))
 
@@ -132,12 +120,6 @@
     (swap! (:tasks *scheduler*) assoc job-id task)
     task))
 
-(defn cancel-task
-  [job-id]
-  {:pre [*scheduler*]}
-  (when-let [task (get-task job-id)]
-    (async/close! task)))
-
 (defn resume
   [job-id]
   {:pre [*scheduler*]}
@@ -146,7 +128,9 @@
 
 (defn- run-job
   [job-id]
-  (let [job-ref (cc/atomic-reference job-id)]
+  (let [job-ref (cc/atomic-reference job-id)
+        init-task (create-task job-id)
+        init-timeout (:job/timeout (.get job-ref))]
     (letfn [(run* []
               (try
                 (run (.get job-ref))
@@ -157,20 +141,26 @@
                            :job/state :job.state/failed
                            :job/error e
                            :job/timeout 0)))))]
-      (async/go-loop [task (create-task job-id)
-                      timeout-ms (:job/timeout (.get job-ref))]
-        (let [[val ch] (async/alts! [task (async/timeout timeout-ms)])]
+      (async/go-loop [task init-task
+                      timeout-ms init-timeout]
+        (let [[val ch] (async/alts! [task (async/timeout timeout-ms)])
+              ^com.hazelcast.core.IAtomicReference job-ref job-ref]
           (if (= task ch)
-            (recur (create-task job-id)
-                   (:job/timeout (.get job-ref)))
+            (cond
+              (= val :resume) (recur (create-task job-id)
+                                     (:job/timeout (.get job-ref)))
+              (= val :stop) nil
+              :else (.destroy job-ref))
             (let [oldval (.get job-ref)
                   newval (run* oldval)]
               (.set job-ref newval)
-              (if (#{:job.state/paused :job.state/failed} (:job/state job))
+              (if (#{:job.state/paused :job.state/failed} (:job/state newval))
                 (async/<! task)
-                (async/>! task job))
-              (recur (create-task job-id)
-                     (:job/timeout (.get job-ref))))))))))
+                (async/>! task newval))
+              (if (= (:job/state newval) :job.state/terminated)
+                (.destroy job-ref)
+                (recur (create-task job-id)
+                       (:job/timeout (.get job-ref)))))))))))
 
 (defn remove-job-listener
   "Remove the current listener from a job, e.g. migrating
@@ -207,7 +197,7 @@
 ;; - Reschedule
 ;; - Unschedule
 
-(defn- job-entry-listener
+(defn- ^MapListener job-entry-listener
   [exec tasks]
   (reify
     EntryAddedListener
@@ -224,53 +214,30 @@
           (.cancel task false)
           (swap! tasks dissoc job-id))))))
 
-(defn register-local-jobs
-  "Register every job assigned to this node, should be idempotnet
-   but involves some churn on message listeners and "
-  [jobs]
-  (doseq [job-id (.get jobs (cluster/local-member-uuid))]
-    (reschedule {:job/id job-id})))
-
-(defrecord Scheduler [^ScheduledExecutorService exec
-                      ^String membership-listener-id
-                      ^String entry-listener-id
-                      ^DelayQueue queue
-                      tasks]
+(defrecord Scheduler [^String listener-id tasks]
   com/Component
   (initialized? [_] true)
-  (started? [_] (boolean exec))
+  (started? [_] (boolean tasks))
   (migrate? [_] false)
   (-init [this] this)
   (-start [this]
     (let [jobs (cluster-jobs)
-          queue (DelayQueue.)
-          exec (doto ^ScheduledThreadPoolExecutor
-                   (Executors/newScheduledThreadPool 1)
-                 (.setRemoveOnCancelPolicy true))
-          tasks (atom {})
-          entry-listener (job-entry-listener exec tasks)
-          component (assoc this
-                           :jobs jobs
-                           :queue queue
-                           :exec exec
-                           :entry-listener-id
-                           (.addLocalEntryListener jobs entry-listener)
-                           :tasks tasks)]
+          listener (job-entry-listener tasks)
+          this (assoc this
+                      :listener-id (.addLocalEntryListener jobs listener)
+                      :tasks (atom {}))]
       (if (thread-bound? #'*scheduler*)
-        (set! *scheduler* instance)
-        (.bindRoot #'*scheduler* instance))
-      ;; Add jobs if master in cluster has already moved them while my
-      ;; listener was not yet scheduled
-      (register-local-jobs jobs)
-      component))
+        (set! *scheduler* this)
+        (.bindRoot #'*scheduler* this))
+      this))
   (-stop [this]
-    (.shutdown exec)
-    (.removeEntryListener jobs entry-listener-id)
-    (cluster/remove-membership-listener membership-listener-id)
+    (.removeEntryListener (cluster-jobs) listener-id)
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* nil)
       (.bindRoot #'*scheduler* nil))
-    (assoc this :jobs nil :exec nil))
+    (doseq [[job-id ch] @tasks]
+      (async/>!! ch :stop))
+    (assoc this :tasks nil))
   (-migrate [this] this))
 
 (defn reschedule
