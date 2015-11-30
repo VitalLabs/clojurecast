@@ -10,8 +10,6 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:dynamic *test-mode* false)
-
 (def ^:dynamic *job*)
 
 (defn ^com.hazelcast.core.IMap cluster-jobs
@@ -146,9 +144,7 @@
 
 (defn- job-timeout
   ^long [^com.hazelcast.core.IAtomicReference job-ref]
-  (if *test-mode*
-    0
-    (:job/timeout (.get job-ref))))
+  (:job/timeout (.get job-ref)))
 
 (defn- run-job
   [job-id ^ScheduledThreadPoolExecutor exec tasks]
