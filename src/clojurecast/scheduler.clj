@@ -157,9 +157,9 @@
                    (job-timeout job-ref)
                    TimeUnit/MILLISECONDS)]
     (swap! tasks assoc job-id scheduled-future)
-    (future
-      (swap! tasks dissoc job-id)
+    (future ;; This holds a thread until @scheduled-future returns?  Does this block the future thread pool?
       (when-let [job @scheduled-future]
+        (swap! tasks dissoc job-id) 
         (.set job-ref job)
         (cond
           (.isCancelled scheduled-future) :cancel
