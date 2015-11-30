@@ -2,7 +2,7 @@
   (:require [clojurecast.core :as cc]
             [clojurecast.cluster :as cluster]
             [clojurecast.component :as com])
-  (:import [java.util.concurrent Executors ScheduledExecutorService]
+  (:import [java.util.concurrent DelayQueue Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
            [com.hazelcast.core MessageListener]
@@ -10,11 +10,13 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:dynamic *jobs-name* "scheduler/jobs")
-
 (def ^:dynamic *test-mode* false)
 
 (def ^:dynamic *job*)
+
+(defn ^com.hazelcast.core.IMap cluster-jobs
+  []
+  (cc/distributed-map "scheduler/jobs"))
 
 (declare reschedule)
 
@@ -53,7 +55,7 @@
         (assoc job
                :job/timeout (:job/timeout job 0)
                :job/state (:job/state job :job.state/running)))
-  (.put (cc/multi-map *jobs-name*)
+  (.put (cluster-jobs)
         (cluster/local-member-uuid)
         (:job/id job)))
 
@@ -63,14 +65,14 @@
     (when (:job/topic-bus (.get job-ref))
       (.removeMessageListener (cc/reliable-topic (:job/id job))
                               (:job/topic-bus (.get job-ref)))))
-  (.remove (cc/multi-map *jobs-name*)
+  (.remove (cluster-jobs)
            (cluster/local-member-uuid)
            (:job/id job)))
 
 (defmethod run [:job/t :job.state/pausing]
   [^com.hazelcast.core.IAtomicReference job-ref]
   (let [job (.get job-ref)]
-    (.remove (cc/multi-map *jobs-name*)
+    (.remove (cluster-jobs)
              (cluster/local-member-uuid)
              (:job/id job))
     (assoc job
@@ -90,7 +92,7 @@
 
 (defn- scheduler-membership-listener
   []
-  (let [jobs (cc/multi-map *jobs-name*)]
+  (let [jobs (cluster-jobs)]
     (reify MembershipListener
       (memberAdded [_ e]
         ;; Re-balance tasks when memberAdded
@@ -134,7 +136,7 @@
         (run job-ref))
       (catch Throwable e
         (let [job (.get job-ref)]
-          (.remove (cc/multi-map *jobs-name*)
+          (.remove (cluster-jobs)
                    (cluster/local-member-uuid)
                    (:job/id job))
           (assoc job
@@ -234,7 +236,8 @@
   (migrate? [_] false)
   (-init [this] this)
   (-start [this]
-    (let [jobs (cc/multi-map *jobs-name*)
+    (let [jobs (cluster-jobs)
+          queue (DelayQueue.)
           exec (doto ^ScheduledThreadPoolExecutor
                    (Executors/newScheduledThreadPool 1)
                  (.setRemoveOnCancelPolicy true))
@@ -263,10 +266,10 @@
 (defn reschedule
   [job]
   (let []
-    (.remove (cc/multi-map *jobs-name*)
+    (.remove (cluster-jobs)
              (cluster/local-member-uuid)
              (:job/id job))
-    (.put (cc/multi-map *jobs-name*)
+    (.put (cluster-jobs)
           (cluster/local-member-uuid)
           (:job/id job))))
 
