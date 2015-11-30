@@ -188,6 +188,20 @@
                                  (cc/reliable-topic job-id)
                                  (job-message-listener job-id))))))
 
+;; Distributed Job Map (each node owns entries according to partitioning strategy)
+;; LocalEntryListener (informs member when it gains ownership of an entry)
+;; - Add a local message listener to the entry topic
+;; - Schedule the next task wake up time
+;; DelayQueue (locally managed 'next task' queue)
+;; ScheduledExecutor to wake up at 'next task' time
+
+;; Update atomic refs to agents to improve job API surface
+
+;; Jobs semantics
+;; - Schedule
+;; - Reschedule
+;; - Unschedule
+
 (defn- job-entry-listener
   [exec tasks]
   (reify EntryListener
