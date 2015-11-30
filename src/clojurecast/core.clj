@@ -256,6 +256,19 @@
   (doseq [^com.hazelcast.core.DistributedObject object (distributed-objects)]
     (.destroy object)))
 
+(def ^:dynamic *tx*)
+
+(defmacro with-tx
+  [& body]
+  `(binding [*tx* (.newTransactionContext *instance*)]
+     (.beginTransaction *tx*)
+     (try
+        ~@body
+       (catch Throwable e#
+         (.rollbackTransaction *tx*))
+       (finally
+         (.commitTransaction *tx*)))))
+
 (defmacro with-distributed-objects
   "Runs the code in `body` with `object`, and destroys `object` at the end."
   [bindings & body]

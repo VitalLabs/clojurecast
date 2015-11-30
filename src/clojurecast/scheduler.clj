@@ -51,12 +51,13 @@
   [job]
   (.set (cc/atomic-reference (:job/id job))
         (assoc job
-          :job/timeout (:job/timeout job 0)
-          :job/state (:job/state job :job.state/running)
-          :job/topic-bus (or (:job/topic-bus job)
-                             (.addMessageListener
-                              (cc/reliable-topic (:job/id job))
-                              (job-message-listener (:job/id job))))))
+               ;; :job/node (cluster/local-member-uuid)
+               :job/timeout (:job/timeout job 0)
+               :job/state (:job/state job :job.state/running)
+               :job/topic-bus (or (:job/topic-bus job)
+                                  (.addMessageListener
+                                   (cc/reliable-topic (:job/id job))
+                                   (job-message-listener (:job/id job))))))
   (.put (cc/multi-map *jobs-name*)
         (cluster/local-member-uuid)
         (:job/id job)))
@@ -94,19 +95,20 @@
       (memberAdded [_ e])
       (memberAttributeChanged [_ e])
       (memberRemoved [_ e]
-        (when (cluster/is-master?)
-          (let [removed-member (.getMember e)
-                outstanding (.get jobs (.getUuid removed-member))]
-            (when (seq outstanding)              
-              (loop [members (map #(.getUuid ^com.hazelcast.core.Member %)
-                                  (cluster/members))
-                     parts (partition (count (cluster/members)) outstanding)]
-                (when (seq members)
-                  (let [member (first members)
-                        job-uuids (first parts)]
-                    (doseq [uuid job-uuids]
-                      (.put jobs member uuid))
-                    (recur (next members) (next jobs))))))))))))
+        (cc/with-tx
+          (when (cluster/is-master?)
+            (let [removed-member (.getMember e)
+                  outstanding (.get jobs (.getUuid removed-member))]
+              (when (seq outstanding)              
+                (loop [members (map #(.getUuid ^com.hazelcast.core.Member %)
+                                    (cluster/members))
+                       parts (partition (count (cluster/members)) outstanding)]
+                  (when (seq members)
+                    (let [member (first members)
+                          job-uuids (first parts)]
+                      (doseq [uuid job-uuids]
+                        (.put jobs member uuid))
+                      (recur (next members) (next jobs)))))))))))))
 
 (defn- ^Callable job-callable
   [^com.hazelcast.core.IAtomicReference job-ref]
