@@ -58,12 +58,11 @@
 
 (def ^:dynamic *job*)
 
-(def ^:dynamic *scheduler*)
+(defonce ^:dynamic *scheduler* nil)
 
 (defn ^com.hazelcast.core.IMap cluster-jobs
   []
   (cc/distributed-map "scheduler/jobs"))
-
 
 ;;
 ;; JOB Management API
@@ -248,7 +247,6 @@
 (defn- resume-ctrl
   [job-id]
   {:pre [*scheduler*]}
-  (println "Resuming ctrl")
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
@@ -410,12 +408,13 @@
         (add-job-listener job-id))
       this))
   (-stop [this]
+    (doseq [[job-id ch] @ctrls]
+      (async/>!! ch :stop))
+    (reset! ctrls {})
     (.removeEntryListener (cluster-jobs) entry-id)
     (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* nil)
-      (.bindRoot #'*scheduler* nil))
-    (doseq [[job-id ch] @ctrls]
-      (async/>!! ch :stop))
+      (.bindRoot #'*scheduler* nil))    
     (assoc this :ctrls nil :entry-id nil :migration-id nil))
   (-migrate [this] this))
