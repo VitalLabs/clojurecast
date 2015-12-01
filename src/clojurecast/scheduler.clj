@@ -71,6 +71,8 @@
 ;; Use to add, remove, and manage jobs across the cluster
 ;;
 
+(declare get-job)
+
 (defn schedule
   "Schedule a job for execution on the cluster.
    Job is a clojure map with a unique :job/id, it is an error to
@@ -78,13 +80,14 @@
   standard defaults for :job/timeout and :job/state."
   [job]
   {:pre [(:job/id job)]}
-  (assert (not (.get (cluster-jobs) (:job/id job))))
+  (assert (not (get-job (:job/id job))))
   (.put (cluster-jobs)
         (:job/id job)
         (assoc job
-               :job/timeout (:job/timeout job 0)
-               :job/state (:job/state job :job.state/running))))
-
+               :job/state (:job/state job :job.state/running)
+               :job/timeout (:job/timeout job 0))))
+               
+               
 (defn unschedule
   "Remove the job from the cluster and clean up 
    any management state associated with it."
@@ -92,7 +95,7 @@
   (.remove (cluster-jobs)
            job-id))
 
-(defn send
+(defn send-to-job
   "Send a message to the job from any member"
   [job-id message]
   {:pre [(:event/type message)]}
@@ -102,7 +105,7 @@
 (defn get-job
   "Get the current state of a running job from any member"
   [job-id]
-  (.get (cluster-jobs) job-id))
+  (.get (cluster-jobs) (str job-id)))
 
 ;;
 ;; JOB State API
@@ -245,6 +248,7 @@
 (defn- run-job
   [job-id]
   (letfn [(run* [job]
+            (println "Running job: " job)
             (try
               (run job)
               (catch Throwable e
@@ -267,6 +271,7 @@
               (= val :stop) nil
               :else (unschedule job-id))
             (let [newjob (run* job)]
+              (println "Job result: " newjob)
               (when newjob
                 (.put (cluster-jobs) job-id newjob))
               (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
@@ -274,7 +279,7 @@
               (if (= (:job/state (get-job job-id)) :job.state/terminated)
                 (unschedule job-id) ;; unschedule completely if terminated
                 (recur (create-ctrl job-id)
-                       (:job/timeout job))))))))))
+                       (:job/timeout newjob))))))))))
 
 
 ;;
@@ -350,6 +355,13 @@
         ;; I'm the new owner
         (when (.localMember (.getNewOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
+            (let [job (get-job job-id)]
+              (.put (cluster-jobs)
+                    job-id
+                    (assoc job
+                           :job/state :job.state/reinit
+                           :job/prior-state (:job/state job)
+                           :job/timeout 0)))
             (run-job job-id)
             (add-job-listener job-id)))))
     (migrationFailed [_ e]
@@ -365,6 +377,7 @@
   (reify
     EntryAddedListener
     (entryAdded [_ e]
+      (println "ADDED ENTRY: " e)
       (let [job-id (.getKey e)]
         (run-job job-id)
         (add-job-listener job-id)))
