@@ -217,7 +217,7 @@
   "Return the job control channel"
   [job-id]
   {:pre [*scheduler*]}
-  (get (:ctrls *scheduler*) (str job-id)))
+  (get @(:ctrls *scheduler*) (str job-id)))
 
 (defn- cancel-ctrl
   "Stop the run loop"
@@ -347,7 +347,6 @@
   (-init [this] this)
   (-start [this]
     (let [jobs (cluster-jobs)
-          partitioner (cc/partition-service)
           eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
           this (assoc this
                       :entry-id eid
