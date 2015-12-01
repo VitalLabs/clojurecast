@@ -277,7 +277,7 @@
               (.put (cluster-jobs) job-id newjob))
             (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
               (async/<! ctrl)) ;; block on a channel event to proceed
-            (if (= (:job/state (get-job job-id)) :job.state/terminated)
+            (if (= (:job/state newjob) :job.state/terminated)
               (unschedule job-id) ;; unschedule completely if terminated
               (recur (create-ctrl job-id)
                      (:job/timeout newjob)))))))))
