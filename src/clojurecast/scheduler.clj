@@ -332,8 +332,8 @@
    belonging to the provided partition"
   [^com.hazelcast.core.IMap dmap partid]
   (let [psvc (cc/partition-service)]
-    (filter #(= (.getPartitionId (.getPartition psvc %)) partid)
-            (seq (.localKeySet dmap)))))
+    (filter #(== (.getPartitionId (.getPartition psvc %)) partid)
+            (keys dmap))))
 
 (defn- ^MigrationListener migration-listener
   [ctrls]
@@ -347,12 +347,14 @@
         (println "migrationCompleted on partition: " partid)
         ;; I'm no longer the owner
         (when (.localMember (.getOldOwner e))
+          (println "old keys: "
+                   (local-partition-keys (cluster-jobs) partid))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
             (remove-job-listener job-id)
             (remove-ctrl job-id)))
         ;; I'm the new owner
         (when (.localMember (.getNewOwner e))
-          (println "migrated keys: "
+          (println "new keys: "                   
                    (local-partition-keys (cluster-jobs) partid))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
             (let [job (get-job job-id)]
