@@ -242,7 +242,6 @@
   {:pre [*scheduler*]}
   (cancel-ctrl job-id)
   (let [ctrl (async/promise-chan)]
-    (assert (or (string? job-id) (instance? java.util.UUID job-id)))
     (swap! (:ctrls *scheduler*) assoc (str job-id) ctrl)
     ctrl))
 
@@ -411,7 +410,7 @@
         (add-job-listener job-id))
       this))
   (-stop [this]
-    (.removeEntryListener (cluster-jobs) listener-id)
+    (.removeEntryListener (cluster-jobs) entry-id)
     (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* nil)
