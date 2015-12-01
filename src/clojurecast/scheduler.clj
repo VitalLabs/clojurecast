@@ -187,6 +187,7 @@
 ;; The touch event is the same as the default event
 (defmethod handle-message [:job/t :job/touch]
   [job message]
+  (println "Job touched")
   (assoc job
     :job/state :job.state/running
     :job/timeout 0))
@@ -211,7 +212,7 @@
   "Return the job control channel"
   [job-id]
   {:pre [*scheduler*]}
-  (get (:ctrls *scheduler*) job-id))
+  (get (:ctrls *scheduler*) (str job-id)))
 
 (defn- cancel-ctrl
   "Stop the run loop"
@@ -226,7 +227,7 @@
   {:pre [*scheduler*]}
   (when-let [ctrl (job-ctrl job-id)]
     (cancel-ctrl ctrl)
-    (swap! (:ctrls *scheduler*) dissoc job-id)
+    (swap! (:ctrls *scheduler*) dissoc (str job-id))
     ctrl))
 
 (defn- create-ctrl
@@ -236,12 +237,13 @@
   (cancel-ctrl job-id)
   (let [ctrl (async/promise-chan)]
     (assert (or (string? job-id) (instance? java.util.UUID job-id)))
-    (swap! (:ctrls *scheduler*) assoc job-id ctrl)
+    (swap! (:ctrls *scheduler*) assoc (str job-id) ctrl)
     ctrl))
 
 (defn- resume-ctrl
   [job-id]
   {:pre [*scheduler*]}
+  (println "Resuming ctrl")
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
@@ -264,6 +266,7 @@
                       timeout-ms timeout]
         (let [[val ch] (async/alts! [ctrl (async/timeout timeout-ms)])
               job (get-job job-id)]
+          (println "Enter go loop " val ch)
           (if (= ctrl ch)
             (cond
               (= val :resume) (recur (create-ctrl job-id)
@@ -293,6 +296,7 @@
       (let [msg (.getMessageObject message)
             job (get-job job-id)
             newjob (try
+                     (println "executing message" msg)
                      (handle-message job msg)
                      (catch Throwable e
                        (assoc job
