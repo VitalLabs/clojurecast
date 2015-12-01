@@ -394,6 +394,7 @@
           mid (.addMigrationListener part (migration-listener ctrls))
           this (assoc this
                       :entry-id eid
+                      :migration-id mid
                       :ctrls (atom {}))]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
