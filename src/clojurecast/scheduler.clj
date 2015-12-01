@@ -252,35 +252,31 @@
 
 (defn- run-job
   [job-id]
-  (let [job (get-job job-id)
-        timeout (:job/timeout job)
-        ctrl (create-ctrl job-id)]
-    (async/go-loop [ctrl ctrl
-                    timeout-ms timeout]
-      (let [[val ch] (async/alts! [ctrl (async/timeout timeout-ms)])
-            job (get-job job-id)]
-        (if (= ctrl ch)
-          (cond
-            (= val :resume) (recur (create-ctrl job-id)
-                                   (:job/timeout job))
-            (= val :stop) nil
-            :else (unschedule job-id))
-          (let [newjob (try
-                         (run job)
-                         (catch Throwable e
-                           (assoc job
-                                  :job/state :job.state/failed
-                                  :job/prior-state (:job/state job)
-                                  :job/error e
-                                  :job/timeout 0)))]
-            (when newjob
-              (.put (cluster-jobs) job-id newjob))
-            (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
-              (async/<! ctrl)) ;; block on a channel event to proceed
-            (if (= (:job/state newjob) :job.state/terminated)
-              (unschedule job-id) ;; unschedule completely if terminated
-              (recur (create-ctrl job-id)
-                     (:job/timeout newjob)))))))))
+  (async/go-loop []
+    (let [job (get-job job-id)
+          ctrl (create-ctrl job-id)
+          timeout-ms (:job/timeout job)
+          [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
+      (if (= ctrl ch)
+        (cond
+          (= val :resume) (recur)
+          (= val :stop) (unschedule job-id)
+          :else (unschedule job-id))
+        (let [newjob (try
+                       (run job)
+                       (catch Throwable e
+                         (assoc job
+                                :job/state :job.state/failed
+                                :job/prior-state (:job/state job)
+                                :job/error e
+                                :job/timeout 0)))]
+          (when newjob
+            (.put (cluster-jobs) job-id newjob))
+          (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
+            (async/<! ctrl)) ;; block on a channel event to proceed
+          (if (= (:job/state newjob) :job.state/terminated)
+            (unschedule job-id) ;; unschedule completely if terminated
+            (recur)))))))
 
 
 ;;
