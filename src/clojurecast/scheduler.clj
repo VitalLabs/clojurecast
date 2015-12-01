@@ -312,51 +312,10 @@
 
 (defn add-job-listener [job-id]
   "Add the job topic listener for the current member"
-  (assoc (get-job job-id)
-         :job/topic-bus (.addMessageListener (cc/reliable-topic job-id)
-                                             (job-message-listener job-id))))
-
-;;
-;; Migration events
-;;
-
-(defn local-partition-keys
-  "Return the set of keys owned by this cluster
-   belonging to the provided partition"
-  [^com.hazelcast.core.IMap dmap partid]
-  (let [psvc (cc/partition-service)]
-    (filter #(= (.getPartition psvc %) partid)
-            (seq (.localKeySet dmap)))))
-
-(defn- ^MigrationListener migration-listener
-  [ctrls]
-  (reify
-    MigrationListener
-    (migrationStarted [_ e]
-      ;; TODO: Record when migration started?
-      )
-    (migrationCompleted [_ e]
-      (let [partid (.getPartitionId e)]
-        ;; I'm no longer the owner
-        (when (.localMember (.getOldOwner e))
-          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (remove-job-listener job-id)
-            (remove-ctrl job-id)))
-        ;; I'm the new owner
-        (when (.localMember (.getNewOwner e))
-          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (let [job (get-job job-id)]
-              (.put (cluster-jobs)
-                    job-id
-                    (assoc job
-                           :job/state :job.state/reinit
-                           :job/prior-state (:job/state job)
-                           :job/timeout 0)))
-            (run-job job-id)
-            (add-job-listener job-id)))))
-    (migrationFailed [_ e]
-      ;; TODO: How to handle failed migrations
-      )))
+  (let [bus-id (.addMessageListener (cc/reliable-topic job-id)
+                                    (job-message-listener job-id))
+        job (assoc (get-job job-id) :job/topic-bus bus-id)]
+    (.put (cluster-jobs) job-id job)))
 
 ;;
 ;; Job Entry Events
@@ -376,12 +335,11 @@
         (remove-job-listener job-id)
         (remove-ctrl job-id)))))
 
-
 ;;
 ;; Scheduler Object
 ;;
 
-(defrecord Scheduler [entry-id migration-id ctrls]
+(defrecord Scheduler [entry-id ctrls]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean ctrls))
@@ -391,10 +349,8 @@
     (let [jobs (cluster-jobs)
           partitioner (cc/partition-service)
           eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
-          mid (.addMigrationListener partitioner (migration-listener ctrls))
           this (assoc this
                       :entry-id eid
-                      :migration-id mid
                       :ctrls (atom {}))]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
@@ -404,13 +360,11 @@
         (add-job-listener job-id))
       this))
   (-stop [this]
-    (doseq [[job-id ch] @ctrls]
-      (async/>!! ch :stop))
-    (reset! ctrls {})
+    (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
+      (unschedule job-id))
     (.removeEntryListener (cluster-jobs) entry-id)
-    (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* nil)
       (.bindRoot #'*scheduler* nil))    
-    (assoc this :ctrls nil :entry-id nil :migration-id nil))
+    (assoc this :ctrls nil :entry-id nil))
   (-migrate [this] this))
