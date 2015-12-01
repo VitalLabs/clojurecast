@@ -79,8 +79,7 @@
   submit a job for a :job/id that is currently running. Provides
   standard defaults for :job/timeout and :job/state."
   [job]
-  {:pre [(:job/id job)]}
-  (assert (not (get-job (:job/id job))))
+  {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
   (.put (cluster-jobs)
         (:job/id job)
         (assoc job
@@ -92,15 +91,13 @@
   "Remove the job from the cluster and clean up 
    any management state associated with it."
   [job-id]
-  (.remove (cluster-jobs)
-           job-id))
+  (.remove (cluster-jobs) job-id))
 
 (defn send-to-job
   "Send a message to the job from any member"
   [job-id message]
   {:pre [(:event/type message)]}
-  (.publish (cc/reliable-topic job-id)
-            message))
+  (.publish (cc/reliable-topic job-id) message))
 
 (defn get-job
   "Get the current state of a running job from any member"
@@ -128,28 +125,41 @@
     [(:job/type job)
      (:event/type message)]))
 
-
 ;;
 ;; Default behavior for run and handle-message
 ;;
 ;;
 ;; Special job states:
-;; - :job.state/init - A state to enter the first time a job is run,
-;;                     default is to proceed directly to :job.state/running
-;; - :job.state/reinit - Jobs can implement this to reset state after a migration
-;;                       or restart.  The previous state is in :job/prior-state.
-;;                       Default is to proceed to :job.state/running
-;; - :job.state/running - All jobs implement this as the main entry point
-;; - :job.state/failed - The job crashed, storage and ctrl retained but not timeout
-;;                       If you override, you can force a reset on an internal failure
-;;                       to recover, or notify the admin of an error.  Job state is:
-;;                       - :job/error - the error encountered
-;;                       - :job/prior-state - the state the job was in when crashing if run
-;;                       - :job/msg - the message passed if handle-message
-;;                       with the prior tstate
-;; - :job.state/paused - The job is paused, storage and ctrl retianed but no timeout
-;; - :job.state/terminated - Moving to this state unschedules the job and reclaims
-;;                           storage and state.
+
+;; - :job.state/init - A state to enter the first
+;; time a job is run, default is to proceed directly to
+;; :job.state/running
+
+;; - :job.state/reinit - Jobs can implement this to
+;; reset state after a migration or restart.  The previous state is in
+
+;; :job/prior-state.  Default is to proceed to :job.state/running
+
+;; - :job.state/running - All jobs implement this as the main entry
+;; point
+
+;; - :job.state/failed - The job crashed, storage and ctrl
+;; retained but not timeout If you override, you can force a reset on
+;; an internal failure to recover, or notify the admin of an error.
+;; Job state is:
+
+;; - :job/error - the error encountered
+
+;; - :job/prior-state - the state the job was in when crashing if run
+
+;; - :job/msg - the message passed if handle-message with the prior
+;; tstate
+
+;; - :job.state/paused - The job is paused, storage and ctrl
+;; retianed but no timeout
+
+;; - :job.state/terminated - Moving to this
+;; state unschedules the job and reclaims storage and state.
 ;;
 
 (defmethod run [:job/t :job.state/init]
@@ -172,13 +182,11 @@
   
 (defmethod run [:job/t :job.state/running]
   [job]
-  (assert false "All jobs should implement run for :job.state/running")
-  job)
+  (throw (ex-info "All jobs should implement run for :job.state/running" {})))
 
 (defmethod run :default
   [job]
-  (assert false "Unhandled state in run method")
-  job)
+  (throw (ex-info "Unhandled state in run method" {})))
 
 
 ;; Special message types :event/type
@@ -187,7 +195,6 @@
 ;; The touch event is the same as the default event
 (defmethod handle-message [:job/t :job/touch]
   [job message]
-  (println "Job touched")
   (assoc job
     :job/state :job.state/running
     :job/timeout 0))
@@ -198,7 +205,6 @@
   (assoc job
     :job/state :job.state/running
     :job/timeout 0))
-
 
 ;;
 ;; Job controller API (internal)
@@ -249,40 +255,35 @@
 
 (defn- run-job
   [job-id]
-  (letfn [(run* [job]
-            (println "Running job: " job)
-            (try
-              (run job)
-              (catch Throwable e
-                (assoc job
-                       :job/state :job.state/failed
-                       :job/prior-state (:job/state job)
-                       :job/error e
-                       :job/timeout 0))))]
-    (let [job (get-job job-id)
-          timeout (:job/timeout job)
-          ctrl (create-ctrl job-id)]
-      (async/go-loop [ctrl ctrl
-                      timeout-ms timeout]
-        (let [[val ch] (async/alts! [ctrl (async/timeout timeout-ms)])
-              job (get-job job-id)]
-          (println "Enter go loop " val ch)
-          (if (= ctrl ch)
-            (cond
-              (= val :resume) (recur (create-ctrl job-id)
-                                     (:job/timeout job))
-              (= val :stop) nil
-              :else (unschedule job-id))
-            (let [newjob (run* job)]
-              (println "Job result: " newjob)
-              (when newjob
-                (.put (cluster-jobs) job-id newjob))
-              (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
-                (async/<! ctrl)) ;; block on a channel event to proceed
-              (if (= (:job/state (get-job job-id)) :job.state/terminated)
-                (unschedule job-id) ;; unschedule completely if terminated
-                (recur (create-ctrl job-id)
-                       (:job/timeout newjob))))))))))
+  (let [job (get-job job-id)
+        timeout (:job/timeout job)
+        ctrl (create-ctrl job-id)]
+    (async/go-loop [ctrl ctrl
+                    timeout-ms timeout]
+      (let [[val ch] (async/alts! [ctrl (async/timeout timeout-ms)])
+            job (get-job job-id)]
+        (if (= ctrl ch)
+          (cond
+            (= val :resume) (recur (create-ctrl job-id)
+                                   (:job/timeout job))
+            (= val :stop) nil
+            :else (unschedule job-id))
+          (let [newjob (try
+                         (run job)
+                         (catch Throwable e
+                           (assoc job
+                                  :job/state :job.state/failed
+                                  :job/prior-state (:job/state job)
+                                  :job/error e
+                                  :job/timeout 0)))]
+            (when newjob
+              (.put (cluster-jobs) job-id newjob))
+            (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
+              (async/<! ctrl)) ;; block on a channel event to proceed
+            (if (= (:job/state (get-job job-id)) :job.state/terminated)
+              (unschedule job-id) ;; unschedule completely if terminated
+              (recur (create-ctrl job-id)
+                     (:job/timeout newjob)))))))))
 
 
 ;;
@@ -296,7 +297,6 @@
       (let [msg (.getMessageObject message)
             job (get-job job-id)
             newjob (try
-                     (println "executing message" msg)
                      (handle-message job msg)
                      (catch Throwable e
                        (assoc job
@@ -304,9 +304,7 @@
                               :job/msg msg
                               :job/error e
                               :job/timeout 0)))]
-        (.put (cluster-jobs)
-              job-id
-              newjob)
+        (.put (cluster-jobs) job-id newjob)
         (resume-ctrl job-id)))))
 
 
@@ -316,19 +314,14 @@
   [job-id]
   (let [job (get-job job-id)]
     (when-let [listener (:job/topic-bus job)]
-      (.removeMessageListener (cc/reliable-topic job-id)
-                              listener)
-      (.put (cluster-jobs)
-            job-id
-            (dissoc job :job/topic-bus)))))
+      (.removeMessageListener (cc/reliable-topic job-id) listener)
+      (.put (cluster-jobs) job-id (dissoc job :job/topic-bus)))))
 
 (defn add-job-listener [job-id]
   "Add the job topic listener for the current member"
   (assoc (get-job job-id)
-         :job/topic-bus
-         (.addMessageListener
-          (cc/reliable-topic job-id)
-          (job-message-listener job-id))))
+         :job/topic-bus (.addMessageListener (cc/reliable-topic job-id)
+                                             (job-message-listener job-id))))
 
 ;;
 ;; Migration events
@@ -381,7 +374,6 @@
   (reify
     EntryAddedListener
     (entryAdded [_ e]
-      (println "ADDED ENTRY: " e)
       (let [job-id (.getKey e)]
         (run-job job-id)
         (add-job-listener job-id)))
@@ -396,7 +388,7 @@
 ;; Scheduler Object
 ;;
 
-(defrecord Scheduler [^String listener-id migration-id ctrls]
+(defrecord Scheduler [entry-id migration-id ctrls]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean ctrls))
@@ -405,17 +397,15 @@
   (-start [this]
     (let [jobs (cluster-jobs)
           partitioner (cc/partition-service)
-          local-entry-listener (job-entry-listener ctrls)
-          migration-listener (migration-listener ctrls)
+          eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
+          mid (.addMigrationListener partitioner (migration-listener ctrls))
           this (assoc this
-                      :listener-id (.addLocalEntryListener jobs local-entry-listener)
-                      :migration-id (.addMigrationListener partitioner migration-listener)
+                      :entry-id eid
+                      :migration-id mid
                       :ctrls (atom {}))]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
-      ;; Restart any jobs assigned to this node if migration listener
-      ;; was not attached at startup.
       (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
         (run-job job-id)
         (add-job-listener job-id))
@@ -428,8 +418,5 @@
       (.bindRoot #'*scheduler* nil))
     (doseq [[job-id ch] @ctrls]
       (async/>!! ch :stop))
-    (assoc this :ctrls nil))
+    (assoc this :ctrls nil :entry-id nil :migration-id nil))
   (-migrate [this] this))
-
-
-
