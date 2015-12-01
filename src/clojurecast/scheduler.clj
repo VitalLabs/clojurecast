@@ -194,6 +194,7 @@
 ;; The touch event is the same as the default event
 (defmethod handle-message [:job/t :job/touch]
   [job message]
+  (println "Job touched")
   (assoc job
     :job/state :job.state/running
     :job/timeout 0))
@@ -247,6 +248,7 @@
 (defn- resume-ctrl
   [job-id]
   {:pre [*scheduler*]}
+  (println "Resuming ctrl")
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
@@ -257,12 +259,14 @@
           ctrl (create-ctrl job-id)
           timeout-ms (:job/timeout job)
           [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
+      (println "Enter go loop " val ch)
       (if (= ctrl ch)
         (cond
           (= val :resume) (recur)
           (= val :stop) (unschedule job-id)
           :else (unschedule job-id))
         (let [newjob (try
+                       (println "Running job: " job)
                        (run job)
                        (catch Throwable e
                          (assoc job
@@ -270,6 +274,7 @@
                                 :job/prior-state (:job/state job)
                                 :job/error e
                                 :job/timeout 0)))]
+          (println "Job result: " newjob)
           (when newjob
             (.put (cluster-jobs) job-id newjob))
           (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
@@ -290,6 +295,7 @@
       (let [msg (.getMessageObject message)
             job (get-job job-id)
             newjob (try
+                     (println "executing message" msg)
                      (handle-message job msg)
                      (catch Throwable e
                        (assoc job
@@ -368,11 +374,13 @@
   (reify
     EntryAddedListener
     (entryAdded [_ e]
+      (println "ADDED ENTRY: " e)
       (let [job-id (.getKey e)]
         (run-job job-id)
         (add-job-listener job-id)))
     EntryRemovedListener
     (entryRemoved [_ e]
+      (println "REMOVED ENTRY: " e)
       (let [job-id (.getKey e)]
         (remove-job-listener job-id)
         (remove-ctrl job-id)))))
