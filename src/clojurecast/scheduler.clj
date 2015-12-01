@@ -7,10 +7,52 @@
   (:import [java.util.concurrent DelayQueue Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
-           [com.hazelcast.core MessageListener]
+           [com.hazelcast.core MessageListener MigrationListener]
            [com.hazelcast.map.listener MapListener]
-           [com.hazelcast.map.listener EntryAddedListener EntryRemovedListener]
+           [com.hazelcast.map.listener EntryAddedListener EntryRemovedListener]           
            [java.util.concurrent TimeUnit]))
+
+;;
+;; Clojurecast Scheduler v0.2
+;;
+;; The cluster maintains a distributed map of jobs (job-id ->
+;; job-state). Job state should be a clojure map that contains only
+;; serializable values.
+;;
+;; Each cluster member is assigned a subset of values in the map by
+;; the HazelCast partitioner.  When values are added to the map, they
+;; are 'scheduled' which includes being setup to listen to job topic
+;; events and are immediately passed to a core.async go process, the
+;; "run loop".  When they are removed from the map, they are unscheduled
+;; and their associated state and run loop is cleaned up.
+;;
+;; The run loop will call the scheduler/run method with an initial
+;; state and registered a control handler for updating the scheduler
+;; run loop.
+;;
+;; Jobs that receive events via the job topic bus have a message
+;; handler after which a :resume input is sent to the control loop.
+;;
+;; Scheduler Subsystem Terminology:
+;; - Distributed Job Map (each member owns subset of entries according to partitioning strategy)
+;; - Run Loop - a core.async go-loop that executes the workflow
+;; - Controller ('ctrl') - a control channel that is used to manage the run loop
+;; - LocalEntryListener
+;;   - Called when member when owned key-value pairs are added/removed
+;;   - Registers a listener to the job's topic
+;;   - Starts the local core.async loop
+;; - MigrationListener
+;;   - Called when partitions are being migrated
+;;   - Used to shut down old job controller and listener (if source is still up)
+;;   - Creates new listeners and controller on new job when completed
+;; - Scheduler
+;;   - Contains local entry listener ID and the set of local controllers
+;;
+
+
+;;
+;; Scheduler State and Dynamic Vars
+;;
 
 (set! *warn-on-reflection* true)
 
@@ -22,231 +64,355 @@
   []
   (cc/distributed-map "scheduler/jobs"))
 
-(declare reschedule)
 
-(defmulti run (comp (juxt :job/type :job/state)
-                    #(.get ^com.hazelcast.core.IAtomicReference %)))
+;;
+;; JOB Management API
+;;
+;; Use to add, remove, and manage jobs across the cluster
+;;
 
-(defmulti handle-message (fn [^com.hazelcast.core.IAtomicReference job-ref
-                              message]
-                           [(:job/type (.get job-ref))
-                            (:event/type message)]))
+(defn schedule
+  "Schedule a job for execution on the cluster.
+   Job is a clojure map with a unique :job/id, it is an error to
+  submit a job for a :job/id that is currently running. Provides
+  standard defaults for :job/timeout and :job/state."
+  [job]
+  {:pre [(:job/id job)]}
+  (assert (not (.get (cluster-jobs) (:job/id job))))
+  (.put (cluster-jobs)
+        (:job/id job)
+        (assoc job
+               :job/timeout (:job/timeout job 0)
+               :job/state (:job/state job :job.state/running))))
 
-(defmethod handle-message :default
-  [^com.hazelcast.core.IAtomicReference job-ref message]
-  (assoc (.get job-ref)
-    :job/state :job.state/running
-    :job/timeout 0))
+(defn unschedule
+  "Remove the job from the cluster and clean up 
+   any management state associated with it."
+  [job-id]
+  (.remove (cluster-jobs)
+           job-id))
 
+(defn send
+  "Send a message to the job from any member"
+  [job-id message]
+  {:pre [(:event/type message)]}
+  (.publish (cc/reliable-topic job-id)
+            message))
+
+(defn get-job
+  "Get the current state of a running job from any member"
+  [job-id]
+  (.get (cluster-jobs) job-id))
+
+;;
+;; JOB State API
+;;
+;; These two methods are implemented by jobs to handle events and
+;; transition between job states.
+;;
+
+(defmulti run
+  "The job run method dispatches on :job/type and :job/state.
+   :job/type namespaces the specific job class and :job/state 
+   is a value that indicates the current state."
+  (juxt :job/type :job/state))
+
+(defmulti handle-message
+  "The handle-message deals with out-of-band events.  It can
+   modify state and/or start the job running in response to
+   the event.  It is also namespaced by :job/type"
+  (fn [job message]
+    [(:job/type job)
+     (:event/type message)]))
+
+
+;;
+;; Default behavior for run and handle-message
+;;
+;;
+;; Special job states:
+;; - :job.state/init - A state to enter the first time a job is run,
+;;                     default is to proceed directly to :job.state/running
+;; - :job.state/reinit - Jobs can implement this to reset state after a migration
+;;                       or restart.  The previous state is in :job/prior-state.
+;;                       Default is to proceed to :job.state/running
+;; - :job.state/running - All jobs implement this as the main entry point
+;; - :job.state/failed - The job crashed, storage and ctrl retained but not timeout
+;;                       If you override, you can force a reset on an internal failure
+;;                       to recover, or notify the admin of an error.  Job state is:
+;;                       - :job/error - the error encountered
+;;                       - :job/prior-state - the state the job was in when crashing if run
+;;                       - :job/msg - the message passed if handle-message
+;;                       with the prior tstate
+;; - :job.state/paused - The job is paused, storage and ctrl retianed but no timeout
+;; - :job.state/terminated - Moving to this state unschedules the job and reclaims
+;;                           storage and state.
+;;
+
+(defmethod run [:job/t :job.state/init]
+  [job]
+  (assoc job
+         :job/state :job.state/running
+         :job/timeout 0))
+
+(defmethod run [:job/t :job.state/reinit]
+  [job]
+  (-> job
+      (dissoc :job/prior-state)
+      (assoc
+       :job/state :job.state/running
+       :job/timeout 0)))
+
+(defmethod run [:job/t :job.state/failed]
+  [job]
+  job)
+  
+(defmethod run [:job/t :job.state/running]
+  [job]
+  (assert false "All jobs should implement run for :job.state/running")
+  job)
+
+(defmethod run :default
+  [job]
+  (assert false "Unhandled state in run method")
+  job)
+
+
+;; Special message types :event/type
+;; - :job/touch - move the job into the running state
+
+;; The touch event is the same as the default event
 (defmethod handle-message [:job/t :job/touch]
-  [^com.hazelcast.core.IAtomicReference job-ref message]
-  (assoc (.get job-ref)
+  [job message]
+  (assoc job
     :job/state :job.state/running
     :job/timeout 0))
+
+;; The default message handler is a touch
+(defmethod handle-message :default
+  [job message]
+  (assoc job
+    :job/state :job.state/running
+    :job/timeout 0))
+
+
+;;
+;; Job controller API (internal)
+;;
+
+;; NOTE: This is made internal because we don't want
+;; external users to be too aware of the internal structure
+;; and screw up things like job topic listeners, etc.
+
+(defn- job-ctrl
+  "Return the job control channel"
+  [job-id]
+  {:pre [*scheduler*]}
+  (get (:ctrls *scheduler*) job-id))
+
+(defn- cancel-ctrl
+  "Stop the run loop"
+  [job-id]
+  {:pre [*scheduler*]}
+  (when-let [ctrl (job-ctrl job-id)]
+    (async/close! ctrl)))
+
+(defn- remove-ctrl
+  "Delete the run loop"
+  [job-id]
+  {:pre [*scheduler*]}
+  (when-let [ctrl (job-ctrl job-id)]
+    (cancel-ctrl ctrl)
+    (swap! (:ctrls *scheduler*) dissoc job-id)
+    ctrl))
+
+(defn- create-ctrl
+  "Create a new "
+  [job-id]
+  {:pre [*scheduler*]}
+  (cancel-ctrl job-id)
+  (let [ctrl (async/promise-chan)]
+    (assert (or (string? job-id) (instance? java.util.UUID job-id)))
+    (swap! (:ctrls *scheduler*) assoc job-id ctrl)
+    ctrl))
+
+(defn- resume-ctrl
+  [job-id]
+  {:pre [*scheduler*]}
+  (when-let [ctrl (job-ctrl job-id)]
+    (async/put! ctrl :resume)))
+
+(defn- run-job
+  [job-id]
+  (letfn [(run* [job]
+            (try
+              (run job)
+              (catch Throwable e
+                (assoc job
+                       :job/state :job.state/failed
+                       :job/prior-state (:job/state job)
+                       :job/error e
+                       :job/timeout 0))))]
+    (let [job (get-job job-id)
+          timeout (:job/timeout job)
+          ctrl (create-ctrl job-id)]
+      (async/go-loop [ctrl ctrl
+                      timeout-ms timeout]
+        (let [[val ch] (async/alts! [ctrl (async/timeout timeout-ms)])
+              job (get-job job-id)]
+          (if (= ctrl ch)
+            (cond
+              (= val :resume) (recur (create-ctrl job-id)
+                                     (:job/timeout job))
+              (= val :stop) nil
+              :else (unschedule job-id))
+            (let [newjob (run* job)]
+              (when newjob
+                (.put (cluster-jobs) job-id newjob))
+              (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
+                (async/<! ctrl)) ;; block on a channel event to proceed
+              (if (= (:job/state (get-job job-id)) :job.state/terminated)
+                (unschedule job-id) ;; unschedule completely if terminated
+                (recur (create-ctrl job-id)
+                       (:job/timeout job))))))))))
+
+
+;;
+;; Listening to the topic bus
+;;
 
 (defn- job-message-listener
   [job-id]
   (reify MessageListener
     (onMessage [_ message]
-      (let [job-ref (cc/atomic-reference job-id)
-            job (handle-message job-ref (.getMessageObject message))]
-        (.set job-ref job)
-        (reschedule job)))))
+      (let [msg (.getMessageObject message)
+            job (get-job job-id)
+            newjob (try
+                     (handle-message job msg)
+                     (catch Throwable e
+                       (assoc job
+                              :job/state :job.state/failed
+                              :job/msg msg
+                              :job/error e
+                              :job/timeout 0)))]
+        (.put (cluster-jobs)
+              job-id
+              newjob)
+        (resume-ctrl job-id)))))
 
-(defn schedule
-  [job]
-  (.set (cc/atomic-reference (:job/id job))
-        (assoc job
-               :job/timeout (:job/timeout job 0)
-               :job/state (:job/state job :job.state/running)))
-  (.put (cluster-jobs)
-        (cluster/local-member-uuid)
-        (:job/id job)))
-
-(defn unschedule
-  [job]
-  (let [job-ref (cc/atomic-reference (:job/id job))]
-    (when (:job/topic-bus (.get job-ref))
-      (.removeMessageListener (cc/reliable-topic (:job/id job))
-                              (:job/topic-bus (.get job-ref)))))
-  (.remove (cluster-jobs)
-           (cluster/local-member-uuid)
-           (:job/id job)))
-
-(defmethod run [:job/t :job.state/pausing]
-  [^com.hazelcast.core.IAtomicReference job-ref]
-  (let [job (.get job-ref)]
-    (.remove (cluster-jobs) (:job/id job))
-    (assoc job
-      :job/state :job.state/paused
-      :job/timeout 0)))
-
-(defmethod run [:job/t :job.state/complete]
-  [^com.hazelcast.core.IAtomicReference job-ref]
-  (let [job (.get job-ref)]
-    (.destroy job-ref)
-    job))
-
-(defmethod run :default
-  [^com.hazelcast.core.IAtomicReference job-ref]
-  (assoc (.get job-ref)
-    :job/state :job.state/pausing
-    :job/timeout 0))
-
-(defn get-task
-  [job-id]
-  {:pre [*scheduler*]}
-  (get (:tasks *scheduler*) job-id))
-
-(defn cancel-task
-  [job-id]
-  {:pre [*scheduler*]}
-  (when-let [task (get-task job-id)]
-    (async/close! task)))
-
-(defn remove-task
-  [job-id]
-  {:pre [*scheduler*]}
-  (when-let [task (get-task job-id)]
-    (cancel-task task)
-    (swap! (:tasks *scheduler*) dissoc job-id)
-    task))
-
-(defn create-task
-  [job-id]
-  {:pre [*scheduler*]}
-  (cancel-task job-id)
-  (let [task (async/promise-chan)]
-    (swap! (:tasks *scheduler*) assoc job-id task)
-    task))
-
-(defn resume
-  [job-id]
-  {:pre [*scheduler*]}
-  (when-let [task (get-task job-id)]
-    (async/put! task :resume)))
-
-(defn- run-job
-  [job-id]
-  (let [job-ref (cc/atomic-reference job-id)
-        init-task (create-task job-id)
-        init-timeout (:job/timeout (.get job-ref))]
-    (letfn [(run* []
-              (try
-                (run (.get job-ref))
-                (catch Throwable e
-                  (let [job (.get job-ref)]
-                    (.remove (cluster-jobs) (:job/id job))
-                    (assoc job
-                           :job/state :job.state/failed
-                           :job/error e
-                           :job/timeout 0)))))]
-      (async/go-loop [task init-task
-                      timeout-ms init-timeout]
-        (let [[val ch] (async/alts! [task (async/timeout timeout-ms)])
-              ^com.hazelcast.core.IAtomicReference job-ref job-ref]
-          (if (= task ch)
-            (cond
-              (= val :resume) (recur (create-task job-id)
-                                     (:job/timeout (.get job-ref)))
-              (= val :stop) nil
-              :else (.destroy job-ref))
-            (let [oldval (.get job-ref)
-                  newval (run* oldval)]
-              (.set job-ref newval)
-              (if (#{:job.state/paused :job.state/failed} (:job/state newval))
-                (async/<! task)
-                (async/>! task newval))
-              (if (= (:job/state newval) :job.state/terminated)
-                (.destroy job-ref)
-                (recur (create-task job-id)
-                       (:job/timeout (.get job-ref)))))))))))
 
 (defn remove-job-listener
   "Remove the current listener from a job, e.g. migrating
    job to another member"
   [job-id]
-  (let [job-ref (cc/atomic-reference job-id)
-        job (.get job-ref)]
+  (let [job (get-job job-id)]
     (when-let [listener (:job/topic-bus job)]
       (.removeMessageListener (cc/reliable-topic job-id)
                               listener)
-      (.set job-ref (dissoc job :job/topic-bus)))))
+      (.put (cluster-jobs)
+            job-id
+            (dissoc job :job/topic-bus)))))
 
 (defn add-job-listener [job-id]
   "Add the job topic listener for the current member"
-  (let [job-ref (cc/atomic-reference job-id)
-        job (.get job-ref)]
-    (.set job-ref
-          (assoc job
-                 :job/topic-bus (.addMessageListener
-                                 (cc/reliable-topic job-id)
-                                 (job-message-listener job-id))))))
+  (assoc (get-job job-id)
+         :job/topic-bus
+         (.addMessageListener
+          (cc/reliable-topic job-id)
+          (job-message-listener job-id))))
 
-;; Distributed Job Map (each node owns entries according to partitioning strategy)
-;; LocalEntryListener (informs member when it gains ownership of an entry)
-;; - Add a local message listener to the entry topic
-;; - Schedule the next task wake up time
-;; DelayQueue (locally managed 'next task' queue)
-;; ScheduledExecutor to wake up at 'next task' time
+;;
+;; Migration events
+;;
 
-;; Update atomic refs to agents to improve job API surface
+(defn local-partition-keys
+  "Return the set of keys owned by this cluster
+   belonging to the provided partition"
+  [^com.hazelcast.core.IMap dmap partid]
+  (let [psvc (cc/partition-service)]
+    (filter #(= (.getPartition psvc %) partid)
+            (seq (.localKeySet dmap)))))
 
-;; Jobs semantics
-;; - Schedule
-;; - Reschedule
-;; - Unschedule
+(defn- ^MigrationListener migration-listener
+  [ctrls]
+  (reify
+    MigrationListener
+    (migrationStarted [_ e]
+      ;; TODO: Record when migration started?
+      )
+    (migrationCompleted [_ e]
+      (let [partid (.getPartitionId e)]
+        ;; I'm no longer the owner
+        (when (.localMember (.getOldOwner e))
+          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
+            (remove-job-listener job-id)
+            (remove-ctrl job-id)))
+        ;; I'm the new owner
+        (when (.localMember (.getNewOwner e))
+          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
+            (run-job job-id)
+            (add-job-listener job-id)))))
+    (migrationFailed [_ e]
+      ;; TODO: How to handle failed migrations
+      )))
+
+;;
+;; Job Entry Events
+;;
 
 (defn- ^MapListener job-entry-listener
-  [tasks]
+  [ctrls]
   (reify
     EntryAddedListener
     (entryAdded [_ e]
-      (let [job-id (.getValue e)]
-        (add-job-listener job-id)
-        (run-job job-id exec tasks)))
-    
+      (let [job-id (.getKey e)]
+        (run-job job-id)
+        (add-job-listener job-id)))
     EntryRemovedListener
     (entryRemoved [_ e]
-      (let [job-id (.getOldValue e)]
+      (let [job-id (.getKey e)]
         (remove-job-listener job-id)
-        (when-let [^ScheduledFuture task (get tasks job-id)]
-          (.cancel task false)
-          (swap! tasks dissoc job-id))))))
+        (remove-ctrl job-id)))))
 
-(defrecord Scheduler [^String listener-id tasks]
+
+;;
+;; Scheduler Object
+;;
+
+(defrecord Scheduler [^String listener-id migration-id ctrls]
   com/Component
   (initialized? [_] true)
-  (started? [_] (boolean tasks))
+  (started? [_] (boolean ctrls))
   (migrate? [_] false)
   (-init [this] this)
   (-start [this]
     (let [jobs (cluster-jobs)
-          listener (job-entry-listener tasks)
+          partitioner (cc/partition-service)
+          local-entry-listener (job-entry-listener ctrls)
+          migration-listener (migration-listener ctrls)
           this (assoc this
-                      :listener-id (.addLocalEntryListener jobs listener)
-                      :tasks (atom {}))]
+                      :listener-id (.addLocalEntryListener jobs local-entry-listener)
+                      :migration-id (.addMigrationListener partitioner migration-listener)
+                      :ctrls (atom {}))]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
+      ;; Restart any jobs assigned to this node if migration listener
+      ;; was not attached at startup.
+      (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
+        (run-job job-id)
+        (add-job-listener job-id))
       this))
   (-stop [this]
     (.removeEntryListener (cluster-jobs) listener-id)
+    (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* nil)
       (.bindRoot #'*scheduler* nil))
-    (doseq [[job-id ch] @tasks]
+    (doseq [[job-id ch] @ctrls]
       (async/>!! ch :stop))
-    (assoc this :tasks nil))
+    (assoc this :ctrls nil))
   (-migrate [this] this))
 
-(defn reschedule
-  [job]
-  (let []
-    (.remove (cluster-jobs)
-             (cluster/local-member-uuid)
-             (:job/id job))
-    (.put (cluster-jobs)
-          (cluster/local-member-uuid)
-          (:job/id job))))
+
 
