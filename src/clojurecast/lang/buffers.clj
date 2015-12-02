@@ -9,87 +9,99 @@
 (ns clojurecast.lang.buffers
   (:require [clojure.core.async.impl.protocols :as impl]
             [taoensso.nippy :as nippy])
-  (:import [java.util LinkedList Queue]))
+  (:import [java.util LinkedList Queue]
+           [com.hazelcast.core HazelcastInstance IQueue IAtomicReference]))
 
 (set! *warn-on-reflection* true)
 
-(deftype FixedBuffer [^LinkedList buf ^long n]
+(deftype FixedBuffer [^IQueue buf ^long n]
   impl/Buffer
   (full? [this]
     (>= (.size buf) n))
   (remove! [this]
-    (.removeLast buf))
+    (.poll buf))
   (add!* [this itm]
-    (.addFirst buf itm)
+    (.offer buf itm)
     this)
   (close-buf! [this])
   clojure.lang.Counted
   (count [this]
     (.size buf)))
 
-(defn fixed-buffer [^long n]
-  (FixedBuffer. (LinkedList.) n))
+(defn fixed-buffer
+  [^HazelcastInstance instance ^String name ^long n]
+  (FixedBuffer. (.getQueue instance name) n))
 
-(deftype DroppingBuffer [^LinkedList buf ^long n]
+(deftype DroppingBuffer [^IQueue buf ^long n]
   impl/UnblockingBuffer
   impl/Buffer
   (full? [this]
     false)
   (remove! [this]
-    (.removeLast buf))
+    (.poll buf))
   (add!* [this itm]
     (when-not (>= (.size buf) n)
-      (.addFirst buf itm))
+      (.offer buf itm))
     this)
   (close-buf! [this])
   clojure.lang.Counted
   (count [this]
     (.size buf)))
 
-(defn dropping-buffer [n]
-  (DroppingBuffer. (LinkedList.) n))
+(defn dropping-buffer
+  [^HazelcastInstance instance ^String name ^long n]
+  (DroppingBuffer. (.getQueue instance name) n))
 
-(deftype SlidingBuffer [^LinkedList buf ^long n]
+(deftype SlidingBuffer [^IQueue buf ^long n]
   impl/UnblockingBuffer
   impl/Buffer
   (full? [this]
     false)
   (remove! [this]
-    (.removeLast buf))
+    (.poll buf))
   (add!* [this itm]
     (when (= (.size buf) n)
       (impl/remove! this))
-    (.addFirst buf itm)
+    (.offer buf itm)
     this)
   (close-buf! [this])
   clojure.lang.Counted
   (count [this]
     (.size buf)))
 
-(defn sliding-buffer [n]
-  (SlidingBuffer. (LinkedList.) n))
+(defn sliding-buffer
+  [^HazelcastInstance instance ^String name ^long n]
+  (SlidingBuffer. (.getQueue instance name) n))
 
-(defonce ^:private NO-VAL (Object.))
-(defn- undelivered? [val]
-  (identical? NO-VAL val))
+(defn- aref-exists? [^HazelcastInstance instance ^String name]
+  (.getDistributedObject instance "hz:impl:atomicReferenceService" name))
 
-(deftype PromiseBuffer [^:unsynchronized-mutable val]
+(defn- undelivered? [^IAtomicReference aref]
+  (identical? (.get aref) ::no-val))
+
+(deftype PromiseBuffer [^IAtomicReference aref]
   impl/UnblockingBuffer
   impl/Buffer
   (full? [_]
     false)
   (remove! [_]
-    val)
+    (.get aref))
   (add!* [this itm]
-    (when (undelivered? val)
-      (set! val itm))
+    (when (undelivered? aref)
+      (.set aref itm))
     this)
   (close-buf! [_]
-    (when (undelivered? val)
-      (set! val nil)))
+    (when (undelivered? aref)
+      (.set aref nil)))
   clojure.lang.Counted
   (count [_]
-    (if (undelivered? val) 0 1)))
+    (if (undelivered? val)
+      0
+      1)))
 
-(defn promise-buffer []
-  (PromiseBuffer. NO-VAL))
+(defn promise-buffer
+  [^HazelcastInstance instance ^String name]
+  (let [aref (.getAtomicReference instance name)]
+    (when-not (aref-exists? aref)
+      (.set aref ::no-val))
+    (PromiseBuffer. aref)))
