@@ -399,8 +399,15 @@
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
       (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
-        (run-job job-id)
-        (add-job-listener job-id))
+        (let [job (get-job job-id)]
+          (.put (cluster-jobs)
+                job-id
+                (assoc job
+                       :job/state :job.state/reinit
+                       :job/prior-state (:job/state job)
+                       :job/timeout 0))
+          (run-job job-id)
+          (add-job-listener job-id)))
       this))
   (-stop [this]
     (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
