@@ -85,7 +85,6 @@
                :job/state (:job/state job :job.state/running)
                :job/timeout (:job/timeout job 0))))
                
-               
 (defn unschedule
   "Remove the job from the cluster and clean up 
    any management state associated with it."
@@ -102,6 +101,7 @@
   "Get the current state of a running job from any member"
   [job-id]
   (.get (cluster-jobs) (str job-id)))
+
 
 ;;
 ;; JOB State API
@@ -124,40 +124,39 @@
     [(:job/type job)
      (:event/type message)]))
 
+
 ;;
 ;; Default behavior for run and handle-message
 ;;
 ;;
 ;; Special job states:
 
-;; - :job.state/init - A state to enter the first
-;; time a job is run, default is to proceed directly to
-;; :job.state/running
+;; :job.state/running - All jobs implement as a default entry
+;; point for the state machine.
 
-;; - :job.state/reinit - Jobs can implement this to
+;; :job.state/init - A state to enter the first
+;; time a job is run, default is to proceed directly to
+
+;; :job.state/reinit - Jobs can implement this to
 ;; reset state after a migration or restart.  The previous state is in
 
-;; :job/prior-state.  Default is to proceed to :job.state/running
+;;     :job/prior-state.  Default is to proceed to :job.state/running
 
-;; - :job.state/running - All jobs implement this as the main entry
-;; point
+;; :job.state/running - All jobs implement this
 
-;; - :job.state/failed - The job crashed, storage and ctrl
+;; :job.state/failed - The job crashed, storage and ctrl
 ;; retained but not timeout If you override, you can force a reset on
 ;; an internal failure to recover, or notify the admin of an error.
 ;; Job state is:
 
-;; - :job/error - the error encountered
+;;     :job/error - the error object encountered
+;;     :job/prior-state - the state the job was in prior to the error
+;;     :job/msg - message passed if handle-message caused the error
 
-;; - :job/prior-state - the state the job was in when crashing if run
-
-;; - :job/msg - the message passed if handle-message with the prior
-;; tstate
-
-;; - :job.state/paused - The job is paused, storage and ctrl
+;; :job.state/paused - The job is paused, storage and ctrl
 ;; retianed but no timeout
 
-;; - :job.state/terminated - Moving to this
+;; :job.state/terminated - Moving to this
 ;; state unschedules the job and reclaims storage and state.
 ;;
 
@@ -194,7 +193,6 @@
 ;; The touch event is the same as the default event
 (defmethod handle-message [:job/t :job/touch]
   [job message]
-  (println "Job touched")
   (assoc job
     :job/state :job.state/running
     :job/timeout 0))
@@ -248,7 +246,6 @@
 (defn- resume-ctrl
   [job-id]
   {:pre [*scheduler*]}
-  (println "Resuming ctrl")
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
@@ -259,14 +256,12 @@
           ctrl (create-ctrl job-id)
           timeout-ms (:job/timeout job)
           [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
-      (println "Enter go loop " val ch)
       (if (= ctrl ch)
         (cond
           (= val :resume) (recur)
           (= val :stop) (unschedule job-id)
           :else (unschedule job-id))
         (let [newjob (try
-                       (println "Running job: " job)
                        (run job)
                        (catch Throwable e
                          (assoc job
@@ -274,7 +269,6 @@
                                 :job/prior-state (:job/state job)
                                 :job/error e
                                 :job/timeout 0)))]
-          (println "Job result: " newjob)
           (when newjob
             (.put (cluster-jobs) job-id newjob))
           (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
@@ -295,7 +289,6 @@
       (let [msg (.getMessageObject message)
             job (get-job job-id)
             newjob (try
-                     (println "executing message" msg)
                      (handle-message job msg)
                      (catch Throwable e
                        (assoc job
@@ -344,18 +337,13 @@
       )
     (migrationCompleted [_ e]
       (let [partid (.getPartitionId e)]
-        (println "migrationCompleted on partition: " partid)
         ;; I'm no longer the owner
         (when (.localMember (.getOldOwner e))
-          (println "old keys: "
-                   (local-partition-keys (cluster-jobs) partid))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
             (remove-job-listener job-id)
             (remove-ctrl job-id)))
         ;; I'm the new owner
         (when (.localMember (.getNewOwner e))
-          (println "new keys: "                   
-                   (local-partition-keys (cluster-jobs) partid))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
             (let [job (get-job job-id)]
               (.put (cluster-jobs)
@@ -379,13 +367,11 @@
   (reify
     EntryAddedListener
     (entryAdded [_ e]
-      (println "ADDED ENTRY: " e)
       (let [job-id (.getKey e)]
         (run-job job-id)
         (add-job-listener job-id)))
     EntryRemovedListener
     (entryRemoved [_ e]
-      (println "REMOVED ENTRY: " e)
       (let [job-id (.getKey e)]
         (remove-job-listener job-id)
         (remove-ctrl job-id)))))
