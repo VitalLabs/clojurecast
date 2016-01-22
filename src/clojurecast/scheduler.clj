@@ -352,8 +352,8 @@
                            :job/state :job.state/reinit
                            :job/prior-state (:job/state job)
                            :job/timeout 0)))
-            (run-job job-id)
-            (add-job-listener job-id)))))
+            #_(run-job job-id)
+            #_(add-job-listener job-id)))))
     (migrationFailed [_ e]
       ;; TODO: How to handle failed migrations
       )))
@@ -389,6 +389,7 @@
   (-start [this]
     (let [jobs (cluster-jobs)
           part (cc/partition-service)
+          local-jobs (seq (.localKeySet (cluster-jobs)))
           eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
           mid (.addMigrationListener part (migration-listener ctrls))
           this (assoc this
@@ -398,7 +399,7 @@
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
-      (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
+      (doseq [job-id local-jobs]
         (let [job (get-job job-id)]
           (.put (cluster-jobs)
                 job-id
@@ -406,8 +407,8 @@
                        :job/state :job.state/reinit
                        :job/prior-state (:job/state job)
                        :job/timeout 0))
-          (run-job job-id)
-          (add-job-listener job-id)))
+          #_(run-job job-id)
+          #_(add-job-listener job-id)))
       this))
   (-stop [this]
     (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
@@ -419,3 +420,14 @@
       (.bindRoot #'*scheduler* nil))    
     (assoc this :ctrls nil :entry-id nil))
   (-migrate [this] this))
+
+
+;;
+;; Creating a job
+;;
+;; - Add to cluster-jobs
+;;   LocalEntryListener: run-job, add-listener
+;; - 
+
+
+
