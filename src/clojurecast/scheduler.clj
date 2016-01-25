@@ -448,6 +448,9 @@
   (migrate? [_] false)
   (-init [this] this)
   (-start [this]
+    (if (thread-bound? #'*scheduler*)
+      (set! *scheduler* this)
+      (.bindRoot #'*scheduler* this))
     (let [jobs (cluster-jobs)
           part (cc/partition-service)
           eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
