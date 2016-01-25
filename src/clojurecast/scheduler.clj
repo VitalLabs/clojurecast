@@ -9,7 +9,8 @@
            [com.hazelcast.core Cluster MembershipListener EntryListener]
            [com.hazelcast.core MessageListener MigrationListener]
            [com.hazelcast.map.listener MapListener]
-           [com.hazelcast.map.listener EntryAddedListener EntryRemovedListener]           
+           [com.hazelcast.map.listener
+            EntryAddedListener EntryUpdatedListener EntryRemovedListener]
            [java.util.concurrent TimeUnit]))
 
 ;;
