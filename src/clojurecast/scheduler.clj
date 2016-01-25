@@ -285,9 +285,9 @@
     (async/put! ctrl :resume)))
 
 (defn- record-job-history
-  [job-state]
-  (when-let [cb (:history *scheduler*)]
-    (cb job-state)))
+  [action job-state]
+  (when-let [cb (:history-fn *scheduler*)]
+    (cb action job-state)))
 
 (defn- run-job
   [job-id]
@@ -335,6 +335,7 @@
                        (assoc job
                               :job/state :job.state/failed
                               :job/msg msg
+                              :job/error-ts (java.util.Date.)
                               :job/error e
                               :job/timeout 0)))]
         (.put (cluster-jobs) job-id newjob)
