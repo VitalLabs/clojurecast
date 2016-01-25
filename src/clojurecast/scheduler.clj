@@ -13,11 +13,25 @@
            [java.util.concurrent TimeUnit]))
 
 ;;
-;; Clojurecast Scheduler v0.2
+;; # Clojurecast Scheduler v0.2
 ;;
 ;; The cluster maintains a distributed map of jobs (job-id ->
 ;; job-state). Job state should be a clojure map that contains only
 ;; serializable values.
+;;
+;; By contract, the cluster will maintain a single core.async go-loop
+;; that handles calling the job multi-method 'run' on startup and
+;; timeout events and message arrival events.  When the cluster
+;; migrates data to/from a node due to a node outage or controlled
+;; lifecycle (e.g. rolling upgrade), the async loop and topic handler
+;; is migrated to a successor node.
+;;
+;; A CC client can maintain 
+;;
+;; NOTE: Due to the use of topics, messages to jobs that arrive
+;; during cluster migration will be lost.
+;;
+;; ## Implementation
 ;;
 ;; Each cluster member is assigned a subset of values in the map by
 ;; the HazelCast partitioner.  When values are added to the map, they
@@ -33,9 +47,13 @@
 ;; Jobs that receive events via the job topic bus have a message
 ;; handler after which a :resume input is sent to the control loop.
 ;;
-;; Scheduler Subsystem Terminology:
+;; ## Scheduler Subsystem Terminology
+;;
+;; - Scheduler
+;;   - Contains local entry listener ID and the set of local Controllers
 ;; - Distributed Job Map (each member owns subset of entries according to partitioning strategy)
 ;; - Run Loop - a core.async go-loop that executes the workflow
+;; - Listener - a topic listener for this job to receive messages
 ;; - Controller ('ctrl') - a control channel that is used to manage the run loop
 ;; - LocalEntryListener
 ;;   - Called when member when owned key-value pairs are added/removed
@@ -43,10 +61,8 @@
 ;;   - Starts the local core.async loop
 ;; - MigrationListener
 ;;   - Called when partitions are being migrated
-;;   - Used to shut down old job controller and listener (if source is still up)
-;;   - Creates new listeners and controller on new job when completed
-;; - Scheduler
-;;   - Contains local entry listener ID and the set of local controllers
+;;   - Used to shut down Run Loop and Listener (if source is still up)
+;;   - Creates new Run Loop and Listener on new cluster
 ;;
 
 
@@ -84,7 +100,19 @@
         (assoc job
                :job/state (:job/state job :job.state/running)
                :job/timeout (:job/timeout job 0))))
-               
+
+(defn reschedule
+  "Support the job's reinitialization protocol outside a migration,
+   for example restoring a job from some external storage"
+  [job]
+  {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
+  (.put (cluster-jobs)
+        (:job/id job)
+        (assoc job
+               :job/state :job.state/reinit
+               :job/prior-state (:job/state job)
+               :job/timeout 0)))
+
 (defn unschedule
   "Remove the job from the cluster and clean up 
    any management state associated with it."
@@ -104,7 +132,7 @@
 
 
 ;;
-;; JOB State API
+;; JOB Implementors API
 ;;
 ;; These two methods are implemented by jobs to handle events and
 ;; transition between job states.
@@ -232,7 +260,14 @@
   (when-let [ctrl (job-ctrl job-id)]
     (cancel-ctrl ctrl)
     (swap! (:ctrls *scheduler*) dissoc (str job-id))
-    ctrl))
+    nil))
+
+(defn- detach-ctrl
+  [job-id]
+  (when-let [ctrl (job-ctrl job-id)]
+    (async/put! ctrl :detach) ;; leave channel to GC
+    (swap! (:ctrls *scheduler*) dissoc (str job-id))
+    nil))
 
 (defn- create-ctrl
   "Create a new "
@@ -249,6 +284,11 @@
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
+(defn- record-job-history
+  [job-state]
+  (when-let [cb (:history *scheduler*)]
+    (cb job-state)))
+
 (defn- run-job
   [job-id]
   (async/go-loop []
@@ -259,6 +299,7 @@
       (if (= ctrl ch)
         (cond
           (= val :resume) (recur)
+          (= val :detach) nil
           (= val :stop) (unschedule job-id)
           :else (unschedule job-id))
         (let [newjob (try
@@ -300,7 +341,7 @@
         (resume-ctrl job-id)))))
 
 
-(defn remove-job-listener
+(defn- remove-job-listener
   "Remove the current listener from a job, e.g. migrating
    job to another member"
   [job-id]
@@ -309,7 +350,7 @@
       (.removeMessageListener (cc/reliable-topic job-id) listener)
       (.put (cluster-jobs) job-id (dissoc job :job/topic-bus)))))
 
-(defn add-job-listener [job-id]
+(defn- add-job-listener [job-id]
   "Add the job topic listener for the current member"
   (let [bus-id (.addMessageListener (cc/reliable-topic job-id)
                                     (job-message-listener job-id))
@@ -320,7 +361,29 @@
 ;; Migration events
 ;;
 
-(defn local-partition-keys
+(defn- detach-job
+  "Called when a job is being moved to another node"
+  [job-id]
+  (remove-job-listener job-id)
+  (detach-ctrl job-id))
+
+(defn- attach-job
+  "Called when job state is being moved to the current node.
+   To de-bounce creation, if the job is already on the node,
+   don't attach again."
+  [job-id]
+  (when-not (job-ctrl job-id)
+    (let [job (get-job job-id)]
+      (.put (cluster-jobs)
+            job-id
+            (assoc job
+                   :job/state :job.state/reinit
+                   :job/prior-state (:job/state job)
+                   :job/timeout 0))
+      (run-job job-id)
+      (add-job-listener job-id))))
+
+(defn- local-partition-keys
   "Return the set of keys owned by this cluster
    belonging to the provided partition"
   [^com.hazelcast.core.IMap dmap partid]
@@ -337,23 +400,14 @@
       )
     (migrationCompleted [_ e]
       (let [partid (.getPartitionId e)]
-        ;; I'm no longer the owner
+        ;; I'm no longer the owner, detach async/loop and msg handler
         (when (.localMember (.getOldOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (remove-job-listener job-id)
-            (remove-ctrl job-id)))
-        ;; I'm the new owner
+            (detach-job job-id)))
+        ;; I'm the new owner, attach async/loop & msg handler
         (when (.localMember (.getNewOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (let [job (get-job job-id)]
-              (.put (cluster-jobs)
-                    job-id
-                    (assoc job
-                           :job/state :job.state/reinit
-                           :job/prior-state (:job/state job)
-                           :job/timeout 0)))
-            #_(run-job job-id)
-            #_(add-job-listener job-id)))))
+            (attach-job job-id)))))
     (migrationFailed [_ e]
       ;; TODO: How to handle failed migrations
       )))
@@ -369,18 +423,24 @@
     (entryAdded [_ e]
       (let [job-id (.getKey e)]
         (run-job job-id)
-        (add-job-listener job-id)))
+        (add-job-listener job-id)
+        (record-job-history :create (.getValue e))))
+    EntryUpdatedListener
+    (entryUpdated [_ e]
+      (let [job-id (.getKey e)]
+        (record-job-history :update (.getValue e))))
     EntryRemovedListener
     (entryRemoved [_ e]
       (let [job-id (.getKey e)]
         (remove-job-listener job-id)
-        (remove-ctrl job-id)))))
+        (remove-ctrl job-id)
+        (record-job-history :remove (.getValue e))))))
 
 ;;
 ;; Scheduler Object
 ;;
 
-(defrecord Scheduler [entry-id migration-id ctrls]
+(defrecord Scheduler [entry-id migration-id ctrls history-fn]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean ctrls))
@@ -389,9 +449,9 @@
   (-start [this]
     (let [jobs (cluster-jobs)
           part (cc/partition-service)
-          local-jobs (seq (.localKeySet (cluster-jobs)))
           eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
           mid (.addMigrationListener part (migration-listener ctrls))
+          local-jobs (seq (.localKeySet (cluster-jobs)))
           this (assoc this
                       :entry-id eid
                       :migration-id mid
@@ -400,19 +460,15 @@
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
       (doseq [job-id local-jobs]
-        (let [job (get-job job-id)]
-          (.put (cluster-jobs)
-                job-id
-                (assoc job
-                       :job/state :job.state/reinit
-                       :job/prior-state (:job/state job)
-                       :job/timeout 0))
-          #_(run-job job-id)
-          #_(add-job-listener job-id)))
+        (attach-job job-id))
       this))
   (-stop [this]
+    ;; For normal cluster shutdown, e.g. during an upgrade, we
+    ;; shouldn't remove the node from the map, we should detach the
+    ;; ctrl loop and message handler.  If the cluster is being stopped,
+    ;; job state will be removed anyway.
     (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
-      (unschedule job-id))
+      (detach job-id))
     (.removeEntryListener (cluster-jobs) entry-id)
     (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
@@ -420,14 +476,6 @@
       (.bindRoot #'*scheduler* nil))    
     (assoc this :ctrls nil :entry-id nil))
   (-migrate [this] this))
-
-
-;;
-;; Creating a job
-;;
-;; - Add to cluster-jobs
-;;   LocalEntryListener: run-job, add-listener
-;; - 
 
 
 
