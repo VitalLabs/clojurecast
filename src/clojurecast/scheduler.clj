@@ -473,7 +473,7 @@
     ;; ctrl loop and message handler.  If the cluster is being stopped,
     ;; job state will be removed anyway.
     (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
-      (detach job-id))
+      (detach-job job-id))
     (.removeEntryListener (cluster-jobs) entry-id)
     (.removeMigrationListener (cc/partition-service) migration-id)
     (if (thread-bound? #'*scheduler*)
