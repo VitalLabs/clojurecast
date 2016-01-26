@@ -285,9 +285,15 @@
   (when-let [ctrl (job-ctrl job-id)]
     (async/put! ctrl :resume)))
 
+(defn- scheduler-history-fn
+  "Returns the current history-fn set in config on the scheduler."
+  []
+  {:pre [*scheduler*]}
+  (get-in *scheduler* [:config :history-fn]))
+
 (defn- record-job-history
   [action job-state]
-  (when-let [cb (:history-fn *scheduler*)]
+  (when-let [cb (scheduler-history-fn)]
     (cb action job-state)))
 
 (defn- run-job
@@ -442,7 +448,7 @@
 ;; Scheduler Object
 ;;
 
-(defrecord Scheduler [entry-id migration-id ctrls history-fn]
+(defrecord Scheduler [entry-id migration-id ctrls config]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean ctrls))
