@@ -466,7 +466,8 @@
           this (assoc this
                       :entry-id eid
                       :migration-id mid
-                      :ctrls (atom {}))]
+                      :ctrls (atom {})
+                      :config (update config :history-fn resolve))]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
