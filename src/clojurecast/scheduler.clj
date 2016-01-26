@@ -294,7 +294,8 @@
 (defn- record-job-history
   [action job-state]
   (when-let [cb (scheduler-history-fn)]
-    (cb action job-state)))
+    (when job-state
+      (cb action job-state))))
 
 (defn- run-job
   [job-id]
@@ -445,6 +446,7 @@
         (record-job-history :remove (.getValue e))))))
 
 ;;
+
 ;; Scheduler Object
 ;;
 
