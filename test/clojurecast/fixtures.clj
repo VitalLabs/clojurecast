@@ -5,8 +5,8 @@
             [clojurecast.scheduler :as scheduler]
             [clojure.tools.logging :as log]))
 
-(defonce system
-  "Mock system used for testing."
+(defonce ^{:doc "Mock system used for testing."}
+  system
   nil)
 
 (defn- ^:dynamic *mock-history-fn*
