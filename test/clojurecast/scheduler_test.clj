@@ -14,4 +14,6 @@
         part1 (cc/partition-service (:instance node1))
         part2 (cc/partition-service (:instance node2))]
     (with-system1
+      (print (cluster/local-member)))
+    (with-system2
       (print (cluster/local-member)))))

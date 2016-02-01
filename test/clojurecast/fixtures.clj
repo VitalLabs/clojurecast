@@ -55,12 +55,16 @@
 
 (defmacro with-system1
   [& body]
-  `(with-node (:node1 system)
-     (with-scheduler (:scheduler1 system)
-       ~@body)))
+  `(do
+     (is system "System is unavailable.")
+     (with-node (:node1 system)
+       (with-scheduler (:scheduler1 system)
+         ~@body))))
 
 (defmacro with-system2
   [& body]
-  `(with-node (:node2 system)
-     (with-scheduler (:scheduler2 system)
-       ~@body)))
+  `(do
+     (is system "System is unavailable.")
+     (with-node (:node2 system)
+       (with-scheduler (:scheduler2 system)
+         ~@body))))
