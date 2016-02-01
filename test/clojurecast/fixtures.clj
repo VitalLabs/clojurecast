@@ -5,7 +5,7 @@
             [clojurecast.scheduler :as scheduler]
             [clojure.tools.logging :as log]))
 
-(def system
+(defonce system
   "Mock system used for testing."
   nil)
 
@@ -38,4 +38,6 @@
     (when-not system      
       (alter-var-root #'system (fn [_] (make-system)))
       (alter-var-root #'system com/start-system))
+    (is system "System is unavailable.")
     (call-next-method)))
+

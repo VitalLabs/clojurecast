@@ -5,5 +5,4 @@
             [clojurecast.component :as com]
             [clojure.core.async :as async]))
 
-
-
+(use-fixtures :once with-mock-system)
