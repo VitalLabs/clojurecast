@@ -292,6 +292,7 @@
   (get-in *scheduler* [:config :history-fn]))
 
 (defn- record-job-history
+  "history-fn :: action -> job-state -> Nil"
   [action job-state]
   (when-let [cb (scheduler-history-fn)]
     (when job-state
