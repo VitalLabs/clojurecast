@@ -1,19 +1,43 @@
 (ns clojurecast.scheduler-test
   (:use clojure.test
-        clojurecast.fixtures)
+        clojurecast.fixtures
+        clojurecast.scheduler
+        clojurecast.generators)
   (:require [clojurecast.core :as cc]
-            [clojurecast.scheduler :as s]
             [clojurecast.cluster :as cluster]
             [clojurecast.component :as com]
-            [clojure.core.async :as async]))
+            [clojure.core.async :as async]
+            [clojure.test.check :as tc]
+            [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as prop]))
 
-(use-fixtures :once with-mock-system)
+(derive :job/test :job/t)
 
-(deftest ensure-listeners
-  (let [{:keys [node1 scheduler1 node2 scheduler2]} system
-        part1 (cc/partition-service (:instance node1))
-        part2 (cc/partition-service (:instance node2))]
+(defmethod run [:job/test :job.state/running]
+  [job]
+  (assoc job
+         :job/state :job.state/paused
+         :job/timeout 0))
+
+(defn with-mock-jobs
+  "Establishes jobs for each mock system."
+  [call-next-method]
+  (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
     (with-system1
-      (print (cluster/local-member)))
+      ;; schedule on system1
+      )
     (with-system2
-      (print (cluster/local-member)))))
+      ;; schedule on system2
+      )
+    (call-next-method)
+    ;; unschedule everything
+    (with-system1
+      (doseq [[k v] (cluster-jobs)]
+        (unschedule k)))
+    (with-system2
+      (doseq [[k v] (cluster-jobs)]
+        (unschedule k)))))
+
+(use-fixtures :once with-mock-system with-mock-jobs)
+
+
