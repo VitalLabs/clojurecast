@@ -24,11 +24,11 @@
   [call-next-method]
   (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
     (with-system1
-      ;; schedule on system1
-      )
+      (doseq [job (gen/sample job)]
+        (schedule job)))
     (with-system2
-      ;; schedule on system2
-      )
+      (doseq [job (gen/sample job)]
+        (schedule job)))
     (call-next-method)
     ;; unschedule everything
     (with-system1
