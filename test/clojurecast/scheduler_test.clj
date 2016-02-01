@@ -9,6 +9,9 @@
 
 (use-fixtures :once with-mock-system)
 
-(deftest ensure-node-listeners  
-  (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
-    ))
+(deftest ensure-listeners
+  (let [{:keys [node1 scheduler1 node2 scheduler2]} system
+        part1 (cc/partition-service (:instance node1))
+        part2 (cc/partition-service (:instance node2))]
+    (with-system1
+      (print (cluster/local-member)))))
