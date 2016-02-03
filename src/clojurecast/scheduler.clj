@@ -80,7 +80,7 @@
 (defn ^com.hazelcast.core.IMap cluster-jobs
   ([]
    {:pre [*scheduler*]}
-   (cluster-jobs (get-in *scheduler* [:node :instance]) "scheduler/jobs"))
+   (cluster-jobs (get-in *scheduler* [:node :instance])))
   ([instance]
    (cc/distributed-map instance "scheduler/jobs")))
 
