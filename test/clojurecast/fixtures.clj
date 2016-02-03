@@ -23,12 +23,12 @@
    ;; Mock System A
    :node1 (cc/map->Node {})
    :scheduler1 (com/using (scheduler/map->Scheduler {:config node-config})
-                          {:node1 :node})
+                          {:node :node1})
 
    ;; Mock System B
    :node2 (com/using (cc/map->Node {}) [:node1])
    :scheduler2 (com/using (scheduler/map->Scheduler {:config node-config})
-                          {:node2 :node})))
+                          {:node :node2})))
 
 (defn with-mock-system
   "Establishes the global mock system used for testing."
