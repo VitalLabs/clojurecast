@@ -77,7 +77,15 @@
 
 (defonce ^:dynamic *scheduler* nil)
 
+(defmacro with-scheduler
+  [scheduler & body]
+  `(let [scheduler# ~scheduler]
+     (binding [cc/*instance* (get-in scheduler# [:node :instance])
+               *scheduler* scheduler#]
+       ~@body)))
+
 (defn- ^com.hazelcast.core.HazelcastInstance scheduler-instance
+  "Private getter for the HazelcastInstance which instantiated *scheduler*."
   ([]
    {:pre [*scheduler*]}
    (scheduler-instance *scheduler*))
@@ -85,6 +93,7 @@
    (get-in scheduler [:node :instance])))
 
 (defn ^com.hazelcast.core.IMap cluster-jobs
+  "Public getter for the cluster-wide job map."
   ([]
    {:pre [*scheduler*]}
    (cluster-jobs (scheduler-instance)))
@@ -98,7 +107,7 @@
 ;;
 
 (defn get-job
-  "Public accessor for the current state of a running job from any node."
+  "Public getter for the current state of a running job from any node."
   [job]
   {:pre [*scheduler*]}
   (cond
@@ -157,9 +166,6 @@
   [job-id message]
   {:pre [(:event/type message)]}
   (.publish (cc/reliable-topic job-id) message))
-
-
-
 
 ;;
 ;; JOB Implementors API
@@ -329,8 +335,7 @@
 
 (defn- run-job
   [scheduler job-id]
-  (binding [cc/*instance* (get-in scheduler [:node :instance])
-            *scheduler* scheduler]
+  (with-scheduler scheduler
     (async/go-loop []
       (let [job (get-job job-id)
             ctrl (create-ctrl job-id)
@@ -349,9 +354,12 @@
                                   :job/state :job.state/failed
                                   :job/prior-state (:job/state job)
                                   :job/error e
-                                  :job/timeout 0)))]
+                                  :job/timeout 0)))
+                ;; Ensure the job always has the proper id, regardless
+                ;; of user error.
+                newjob (assoc newjob :job/id job-id)]
             (when newjob
-              (.put (cluster-jobs) job-id newjob))
+              (put-job! newjob))
             (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
               (async/<! ctrl)) ;; block on a channel event to proceed
             (if (= (:job/state newjob) :job.state/terminated)
@@ -364,49 +372,47 @@
 ;;
 
 (defn- job-message-listener
-  [job-id]
+  [scheduler job-id]
   (reify MessageListener
     (onMessage [_ message]
-      (let [msg (.getMessageObject message)
-            job (get-job job-id)
-            newjob (try
-                     (handle-message job msg)
-                     (catch Throwable e
-                       (assoc job
-                              :job/state :job.state/failed
-                              :job/msg msg
-                              :job/error-ts (java.util.Date.)
-                              :job/error e
-                              :job/timeout 0)))]
-        (.put (cluster-jobs) job-id newjob)
-        (resume-ctrl job-id)))))
+      (with-scheduler scheduler
+        (let [msg (.getMessageObject message)
+              job (get-job job-id)
+              newjob (try
+                       (handle-message job msg)
+                       (catch Throwable e
+                         (assoc job
+                                :job/state :job.state/failed
+                                :job/msg msg
+                                :job/error-ts (java.util.Date.)
+                                :job/error e
+                                :job/timeout 0)))
+              ;; Ensure the job always has the proper id, regardless
+              ;; of user error.
+              newjob (assoc newjob :job/id job-id)]
+          (put-job! newjob)
+          (resume-ctrl job-id))))))
 
+(defn- add-job-listener
+  "Add the job topic listener for the current member"
+  [scheduler job-id]
+  (let [bus-id (.addMessageListener (cc/reliable-topic job-id)
+                                    (job-message-listener scheduler job-id))
+        job (assoc (get-job job-id) :job/topic-bus bus-id)]
+    (put-job! job)))
 
 (defn- remove-job-listener
   "Remove the current listener from a job, e.g. migrating
    job to another member"
-  [job-id]
+  [scheduler job-id]
   (let [job (get-job job-id)]
     (when-let [listener (:job/topic-bus job)]
       (.removeMessageListener (cc/reliable-topic job-id) listener)
-      (.put (cluster-jobs) job-id (dissoc job :job/topic-bus)))))
-
-(defn- add-job-listener [job-id]
-  "Add the job topic listener for the current member"
-  (let [bus-id (.addMessageListener (cc/reliable-topic job-id)
-                                    (job-message-listener job-id))
-        job (assoc (get-job job-id) :job/topic-bus bus-id)]
-    (.put (cluster-jobs) job-id job)))
+      (put-job! (dissoc job :job/topic-bus)))))
 
 ;;
 ;; Migration events
 ;;
-
-(defn- detach-job
-  "Called when a job is being moved to another node"
-  [job-id]
-  (remove-job-listener job-id)
-  (detach-ctrl job-id))
 
 (defn- attach-job
   "Called when job state is being moved to the current node.
@@ -415,14 +421,18 @@
   [scheduler job-id]
   (when-not (job-ctrl job-id)
     (let [job (get-job job-id)]
-      (.put (cluster-jobs)
-            job-id
-            (assoc job
-                   :job/state :job.state/reinit
-                   :job/prior-state (:job/state job)
-                   :job/timeout 0))
+      (put-job! (assoc job
+                       :job/state :job.state/reinit
+                       :job/prior-state (:job/state job)
+                       :job/timeout 0))
       (run-job scheduler job-id)
-      (add-job-listener job-id))))
+      (add-job-listener scheduler job-id))))
+
+(defn- detach-job
+  "Called when a job is being moved to another node"
+  [scheduler job-id]
+  (remove-job-listener scheduler job-id)
+  (detach-ctrl job-id))
 
 (defn- local-partition-keys
   "Return the set of keys owned by this cluster
@@ -444,7 +454,7 @@
         ;; I'm no longer the owner, detach async/loop and msg handler
         (when (.localMember (.getOldOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (detach-job job-id)))
+            (detach-job scheduler job-id)))
         ;; I'm the new owner, attach async/loop & msg handler
         (when (.localMember (.getNewOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
@@ -464,7 +474,7 @@
     (entryAdded [_ e]
       (let [job-id (.getKey e)]
         (run-job scheduler job-id)
-        (add-job-listener job-id)
+        (add-job-listener scheduler job-id)
         (record-job-history :create (.getValue e))))
     EntryUpdatedListener
     (entryUpdated [_ e]
@@ -516,7 +526,7 @@
     ;; job state will be removed anyway.
     (let [jobs (cluster-jobs (:instance node))]
       (doseq [job-id (seq (.localKeySet jobs))]
-        (detach-job job-id))
+        (detach-job this job-id))
       (.removeEntryListener jobs entry-id)
       (.removeMigrationListener (cc/partition-service (:instance node))
                                 migration-id)
