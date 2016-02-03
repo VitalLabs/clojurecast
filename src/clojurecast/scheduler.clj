@@ -77,10 +77,17 @@
 
 (defonce ^:dynamic *scheduler* nil)
 
+(defn- ^com.hazelcast.core.HazelcastInstance scheduler-instance
+  ([]
+   {:pre [*scheduler*]}
+   (scheduler-instance *scheduler*))
+  ([scheduler]
+   (get-in scheduler [:node :instance])))
+
 (defn ^com.hazelcast.core.IMap cluster-jobs
   ([]
    {:pre [*scheduler*]}
-   (cluster-jobs (get-in *scheduler* [:node :instance])))
+   (cluster-jobs (scheduler-instance)))
   ([instance]
    (cc/distributed-map instance "scheduler/jobs")))
 
@@ -90,7 +97,33 @@
 ;; Use to add, remove, and manage jobs across the cluster
 ;;
 
-(declare get-job)
+(defn get-job
+  "Public accessor for the current state of a running job from any node."
+  [job]
+  {:pre [*scheduler*]}
+  (cond
+    (map? job)
+    (.get (cluster-jobs) (str (:job/id job)))
+    (or (string? job) (instance? java.util.UUID job))
+    (.get (cluster-jobs) (str job))
+    :else (throw (ex-info "Job is not one of [map|string|uuid]" {:job job}))))
+
+(defn- put-job!
+  "Private mutator for adding a job to the distributed cluster jobs map."
+  [job]
+  {:pre [*scheduler*]}
+  (.put (cluster-jobs) (str (:job/id job)) job))
+
+(defn- remove-job!
+  "Private mutator for removing a job to the distributed cluster jobs map."
+  [job]
+  {:pre [*scheduler*]}
+  (cond
+    (map? job)
+    (.remove (cluster-jobs) (str (:job/id job)))
+    (or (string? job) (instance? java.util.UUID job))
+    (.remove (cluster-jobs) (str job))
+    :else (throw (ex-info "Job is not one of [map|string|uuid]" {:job job}))))
 
 (defn schedule
   "Schedule a job for execution on the cluster.
@@ -99,29 +132,25 @@
   standard defaults for :job/timeout and :job/state."
   [job]
   {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
-  (.put (cluster-jobs)
-        (:job/id job)
-        (assoc job
-               :job/state (:job/state job :job.state/running)
-               :job/timeout (:job/timeout job 0))))
+  (put-job! (assoc job
+                   :job/state (:job/state job :job.state/running)
+                   :job/timeout (:job/timeout job 0))))
 
 (defn reschedule
   "Support the job's reinitialization protocol outside a migration,
    for example restoring a job from some external storage"
   [job]
   {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
-  (.put (cluster-jobs)
-        (:job/id job)
-        (assoc job
-               :job/state :job.state/reinit
-               :job/prior-state (:job/state job)
-               :job/timeout 0)))
+  (put-job! (assoc job
+                   :job/state :job.state/reinit
+                   :job/prior-state (:job/state job)
+                   :job/timeout 0)))
 
 (defn unschedule
   "Remove the job from the cluster and clean up 
    any management state associated with it."
   [job-id]
-  (.remove (cluster-jobs) job-id))
+  (remove-job! job-id))
 
 (defn send-to-job
   "Send a message to the job from any member"
@@ -129,10 +158,7 @@
   {:pre [(:event/type message)]}
   (.publish (cc/reliable-topic job-id) message))
 
-(defn get-job
-  "Get the current state of a running job from any member"
-  [job-id]
-  (.get (cluster-jobs) (str job-id)))
+
 
 
 ;;
