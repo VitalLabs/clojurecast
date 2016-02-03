@@ -9,9 +9,12 @@
   system
   nil)
 
+(def ^:private ^:dynamic *job-history*
+  [])
+
 (defn- ^:dynamic *mock-history-fn*
   [action job-state]
-  (log/info :history-fn action job-state))
+  (set! *job-history* (conj *job-history* [action job-state])))
 
 (def ^:private node-config
   {:history-fn `*mock-history-fn*})
@@ -33,7 +36,8 @@
 (defn with-mock-system
   "Establishes the global mock system used for testing."
   [call-next-method]
-  (binding [*mock-history-fn* *mock-history-fn*]
+  (binding [*mock-history-fn* *mock-history-fn*
+            *job-history* []]
     ;; Start system once and only once for all tests.
     (alter-var-root #'system (fn [_] (make-system)))
     (alter-var-root #'system com/start-system)
@@ -41,5 +45,6 @@
     (call-next-method)
     (alter-var-root #'system com/stop-system)
     (alter-var-root #'system (constantly nil))
-    (is (nil? system) "System is still available after shutdown.")))
+    (is (nil? system) "System is still available after shutdown.")
+    (alter-var-root #'*job-history* (constantly *job-history*))))
 
