@@ -9,7 +9,9 @@
   system
   nil)
 
-(def job-history [])
+(defonce ^{:doc "Holds mock job history for the last test session."}
+  job-history
+  [])
 
 (defn- ^:dynamic *mock-history-fn*
   [action job-state]
@@ -46,3 +48,7 @@
     (alter-var-root #'system (constantly nil))
     (is (nil? system) "System is still available after shutdown.")))
 
+(defn get-job-history
+  "Returns a vector of [action job] states, showing job progression."
+  [job-id]
+  (into [] (filter #(= (:job/id (second %)) job-id)) job-history))
