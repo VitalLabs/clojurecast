@@ -52,3 +52,8 @@
   "Returns a vector of [action job] states, showing job progression."
   [job-id]
   (into [] (filter #(= (:job/id (second %)) job-id)) job-history))
+
+(defn job-histories
+  "Returns a lazy sequence of partitioned job histories."
+  []
+  (partition-by (comp :job/id second) job-history))

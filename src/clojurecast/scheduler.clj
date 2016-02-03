@@ -488,7 +488,6 @@
         (record-job-history :remove (.getValue e))))))
 
 ;;
-
 ;; Scheduler Object
 ;;
 
