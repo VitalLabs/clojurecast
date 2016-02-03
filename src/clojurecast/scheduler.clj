@@ -121,7 +121,7 @@
   "Private mutator for adding a job to the distributed cluster jobs map."
   [job]
   {:pre [*scheduler*]}
-  (.put (cluster-jobs) (str (:job/id job)) job))
+  (.put (cluster-jobs) (str (:job/id job)) (update job :job/id str)))
 
 (defn- remove-job!
   "Private mutator for removing a job to the distributed cluster jobs map."
