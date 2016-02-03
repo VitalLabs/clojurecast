@@ -303,8 +303,8 @@
 
 (defn- run-job
   [scheduler job-id]
-  (async/go-loop []
-    (binding [*scheduler* scheduler]
+  (binding [*scheduler* scheduler]
+    (async/go-loop []
       (let [job (get-job job-id)
             ctrl (create-ctrl job-id)
             timeout-ms (:job/timeout job)
@@ -470,8 +470,8 @@
           this (assoc this
                       :ctrls (atom {})
                       :config (update config :history-fn resolve))
-          eid (.addLocalEntryListener jobs (job-entry-listener scheduler ctrls))
-          mid (.addMigrationListener part (migration-listener scheduler ctrls))
+          eid (.addLocalEntryListener jobs (job-entry-listener this ctrls))
+          mid (.addMigrationListener part (migration-listener this ctrls))
           local-jobs (seq (.localKeySet jobs))
           this (assoc this
                       :entry-id eid
@@ -495,7 +495,7 @@
                                 migration-id)
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* nil)
-        (.bindRoot #'*scheduler* nil))    
+        (.bindRoot #'*scheduler* nil))
       (assoc this :ctrls nil :entry-id nil)))
   (-migrate [this] this))
 
