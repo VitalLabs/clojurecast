@@ -78,8 +78,11 @@
 (defonce ^:dynamic *scheduler* nil)
 
 (defn ^com.hazelcast.core.IMap cluster-jobs
-  []
-  (cc/distributed-map "scheduler/jobs"))
+  ([]
+   {:pre [*scheduler*]}
+   (cluster-jobs (get-in *scheduler* [:node :instance] "scheduler/jobs")))
+  ([instance]
+   (cc/distributed-map instance "scheduler/jobs")))
 
 ;;
 ;; JOB Management API
@@ -299,33 +302,34 @@
       (cb action job-state))))
 
 (defn- run-job
-  [job-id]
+  [scheduler job-id]
   (async/go-loop []
-    (let [job (get-job job-id)
-          ctrl (create-ctrl job-id)
-          timeout-ms (:job/timeout job)
-          [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
-      (if (= ctrl ch)
-        (cond
-          (= val :resume) (recur)
-          (= val :detach) nil
-          (= val :stop) (unschedule job-id)
-          :else (unschedule job-id))
-        (let [newjob (try
-                       (run job)
-                       (catch Throwable e
-                         (assoc job
-                                :job/state :job.state/failed
-                                :job/prior-state (:job/state job)
-                                :job/error e
-                                :job/timeout 0)))]
-          (when newjob
-            (.put (cluster-jobs) job-id newjob))
-          (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
-            (async/<! ctrl)) ;; block on a channel event to proceed
-          (if (= (:job/state newjob) :job.state/terminated)
-            (unschedule job-id) ;; unschedule completely if terminated
-            (recur)))))))
+    (binding [*scheduler* scheduler]
+      (let [job (get-job job-id)
+            ctrl (create-ctrl job-id)
+            timeout-ms (:job/timeout job)
+            [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
+        (if (= ctrl ch)
+          (cond
+            (= val :resume) (recur)
+            (= val :detach) nil
+            (= val :stop) (unschedule job-id)
+            :else (unschedule job-id))
+          (let [newjob (try
+                         (run job)
+                         (catch Throwable e
+                           (assoc job
+                                  :job/state :job.state/failed
+                                  :job/prior-state (:job/state job)
+                                  :job/error e
+                                  :job/timeout 0)))]
+            (when newjob
+              (.put (cluster-jobs) job-id newjob))
+            (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
+              (async/<! ctrl)) ;; block on a channel event to proceed
+            (if (= (:job/state newjob) :job.state/terminated)
+              (unschedule job-id) ;; unschedule completely if terminated
+              (recur))))))))
 
 
 ;;
@@ -381,7 +385,7 @@
   "Called when job state is being moved to the current node.
    To de-bounce creation, if the job is already on the node,
    don't attach again."
-  [job-id]
+  [scheduler job-id]
   (when-not (job-ctrl job-id)
     (let [job (get-job job-id)]
       (.put (cluster-jobs)
@@ -390,7 +394,7 @@
                    :job/state :job.state/reinit
                    :job/prior-state (:job/state job)
                    :job/timeout 0))
-      (run-job job-id)
+      (run-job scheduler job-id)
       (add-job-listener job-id))))
 
 (defn- local-partition-keys
@@ -402,7 +406,7 @@
             (keys dmap))))
 
 (defn- ^MigrationListener migration-listener
-  [ctrls]
+  [scheduler ctrls]
   (reify
     MigrationListener
     (migrationStarted [_ e]
@@ -417,7 +421,7 @@
         ;; I'm the new owner, attach async/loop & msg handler
         (when (.localMember (.getNewOwner e))
           (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (attach-job job-id)))))
+            (attach-job scheduler job-id)))))
     (migrationFailed [_ e]
       ;; TODO: How to handle failed migrations
       )))
@@ -427,12 +431,12 @@
 ;;
 
 (defn- ^MapListener job-entry-listener
-  [ctrls]
+  [scheduler ctrls]
   (reify
     EntryAddedListener
     (entryAdded [_ e]
       (let [job-id (.getKey e)]
-        (run-job job-id)
+        (run-job scheduler job-id)
         (add-job-listener job-id)
         (record-job-history :create (.getValue e))))
     EntryUpdatedListener
@@ -451,7 +455,7 @@
 ;; Scheduler Object
 ;;
 
-(defrecord Scheduler [entry-id migration-id ctrls config]
+(defrecord Scheduler [entry-id migration-id ctrls config node]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean ctrls))
@@ -461,35 +465,38 @@
     (if (thread-bound? #'*scheduler*)
       (set! *scheduler* this)
       (.bindRoot #'*scheduler* this))
-    (let [jobs (cluster-jobs)
-          part (cc/partition-service)
-          eid (.addLocalEntryListener jobs (job-entry-listener ctrls))
-          mid (.addMigrationListener part (migration-listener ctrls))
-          local-jobs (seq (.localKeySet (cluster-jobs)))
+    (let [jobs (cluster-jobs (:instance node))
+          part (cc/partition-service (:instance node))
+          this (assoc this
+                      :ctrls (atom {})
+                      :config (update config :history-fn resolve))
+          eid (.addLocalEntryListener jobs (job-entry-listener scheduler ctrls))
+          mid (.addMigrationListener part (migration-listener scheduler ctrls))
+          local-jobs (seq (.localKeySet jobs))
           this (assoc this
                       :entry-id eid
-                      :migration-id mid
-                      :ctrls (atom {})
-                      :config (update config :history-fn resolve))]
+                      :migration-id mid)]
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* this)
         (.bindRoot #'*scheduler* this))
       (doseq [job-id local-jobs]
-        (attach-job job-id))
+        (attach-job this job-id))
       this))
   (-stop [this]
     ;; For normal cluster shutdown, e.g. during an upgrade, we
     ;; shouldn't remove the node from the map, we should detach the
     ;; ctrl loop and message handler.  If the cluster is being stopped,
     ;; job state will be removed anyway.
-    (doseq [job-id (seq (.localKeySet (cluster-jobs)))]
-      (detach-job job-id))
-    (.removeEntryListener (cluster-jobs) entry-id)
-    (.removeMigrationListener (cc/partition-service) migration-id)
-    (if (thread-bound? #'*scheduler*)
-      (set! *scheduler* nil)
-      (.bindRoot #'*scheduler* nil))    
-    (assoc this :ctrls nil :entry-id nil))
+    (let [jobs (cluster-jobs (:instance node))]
+      (doseq [job-id (seq (.localKeySet jobs))]
+        (detach-job job-id))
+      (.removeEntryListener jobs entry-id)
+      (.removeMigrationListener (cc/partition-service (:instance node))
+                                migration-id)
+      (if (thread-bound? #'*scheduler*)
+        (set! *scheduler* nil)
+        (.bindRoot #'*scheduler* nil))    
+      (assoc this :ctrls nil :entry-id nil)))
   (-migrate [this] this))
 
 
