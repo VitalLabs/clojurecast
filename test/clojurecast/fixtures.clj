@@ -43,30 +43,3 @@
     (alter-var-root #'system (constantly nil))
     (is (nil? system) "System is still available after shutdown.")))
 
-(defmacro with-node
-  "Run the body with *instance* bound to the given node instance."
-  [node & body]
-  `(binding [cc/*instance* (:instance ~node)]
-     ~@body))
-
-(defmacro with-scheduler
-  "Run the body with *scheduler* bound to the given scheduler."
-  [scheduler & body]
-  `(binding [scheduler/*scheduler* ~scheduler]
-     ~@body))
-
-(defmacro with-system1
-  [& body]
-  `(do
-     (is system "System is unavailable.")
-     (with-node (:node1 system)
-       (with-scheduler (:scheduler1 system)
-         ~@body))))
-
-(defmacro with-system2
-  [& body]
-  `(do
-     (is system "System is unavailable.")
-     (with-node (:node2 system)
-       (with-scheduler (:scheduler2 system)
-         ~@body))))
