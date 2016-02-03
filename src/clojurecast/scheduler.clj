@@ -483,7 +483,7 @@
     EntryRemovedListener
     (entryRemoved [_ e]
       (let [job-id (.getKey e)]
-        (remove-job-listener job-id)
+        (remove-job-listener scheduler job-id)
         (remove-ctrl job-id)
         (record-job-history :remove (.getValue e))))))
 
