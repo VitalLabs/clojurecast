@@ -35,11 +35,13 @@
   [call-next-method]
   (binding [*mock-history-fn* *mock-history-fn*]
     ;; Start system once and only once for all tests.
-    (when-not system      
-      (alter-var-root #'system (fn [_] (make-system)))
-      (alter-var-root #'system com/start-system))
+    (alter-var-root #'system (fn [_] (make-system)))
+    (alter-var-root #'system com/start-system)
     (is system "System is unavailable.")
-    (call-next-method)))
+    (call-next-method)
+    (alter-var-root #'system com/stop-system)
+    (alter-var-root #'system (constantly nil))
+    (is (nil? system) "System is still available after shutdown.")))
 
 (defmacro with-node
   "Run the body with *instance* bound to the given node instance."
