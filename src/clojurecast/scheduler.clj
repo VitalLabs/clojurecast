@@ -303,7 +303,8 @@
 
 (defn- run-job
   [scheduler job-id]
-  (binding [*scheduler* scheduler]
+  (binding [cc/*instance* (get-in scheduler [:node :instance])
+            *scheduler* scheduler]
     (async/go-loop []
       (let [job (get-job job-id)
             ctrl (create-ctrl job-id)
