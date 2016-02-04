@@ -38,7 +38,7 @@
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
         (call-next-method))
-      
+
       ;; unschedule everything
       (with-scheduler scheduler1
         (doseq [[k v] (cluster-jobs)]
@@ -51,11 +51,10 @@
       ;; assert every job has been created, updated, and removed
       (doseq [job-id *jobs*
               :let [history (get-job-history job-id)]]
-        (clojure.pprint/pprint job-id)
-        #_(is (= (first (first history)) :create)
-              "First event recorded for job was :create.")
-        #_(is (= (first (peek history)) :remove)
-              "Last event recorded for job was :remove.")))))
+        (is (= (first (first history)) :create)
+            "First event recorded for job was not :create.")
+        (is (= (first (peek history)) :remove)
+            "Last event recorded for job was not :remove.")))))
 
 (use-fixtures :once with-mock-system with-mock-jobs)
 
@@ -67,6 +66,3 @@
   (when *jobs*
     (doseq [job-id *jobs*]
       (is (get-job job-id) "Job is not found."))))
-
-
-

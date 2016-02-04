@@ -56,4 +56,4 @@
 (defn job-histories
   "Returns a lazy sequence of partitioned job histories."
   []
-  (partition-by (comp str :job/id second) job-history))
+  (vals (group-by (comp str :job/id second) job-history)))

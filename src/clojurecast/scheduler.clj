@@ -485,7 +485,7 @@
       (let [job-id (.getKey e)]
         (remove-job-listener scheduler job-id)
         (remove-ctrl job-id)
-        (record-job-history :remove (.getValue e))))))
+        (record-job-history :remove (.getOldValue e))))))
 
 ;;
 ;; Scheduler Object
