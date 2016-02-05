@@ -64,3 +64,16 @@
   (when *jobs*
     (doseq [job-id *jobs*]
       (is (get-job job-id) "Job is not found."))))
+
+(deftest node-failure-is-fault-tolerant
+  (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
+    
+    (when (identical? *scheduler* scheduler1)
+      (com/stop scheduler2)
+      (com/stop node2)
+      (com/start (assoc scheduler2 :node (com/start node2))))
+    
+    (when (identical? *scheduler* scheduler2)
+      (com/stop scheduler1)
+      (com/stop node1)
+      (com/start (assoc scheduler1 :node (com/start node1))))))
