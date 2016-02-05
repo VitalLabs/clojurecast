@@ -26,13 +26,15 @@
   [call-next-method]
   (binding [*jobs* []]
     (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
-      
+
+      ;; invoke tests with scheduler1
       (with-scheduler scheduler1
         (doseq [job (gen/sample job)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
         (call-next-method))
-      
+
+      ;; invoke tests with scheduler2
       (with-scheduler scheduler2
         (doseq [job (gen/sample job)]
           (set! *jobs* (conj *jobs* (:job/id job)))
@@ -41,10 +43,6 @@
 
       ;; unschedule everything
       (with-scheduler scheduler1
-        (doseq [[k v] (cluster-jobs)]
-          (unschedule k)))
-      
-      (with-scheduler scheduler2
         (doseq [[k v] (cluster-jobs)]
           (unschedule k)))
 
