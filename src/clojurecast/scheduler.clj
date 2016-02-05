@@ -447,21 +447,24 @@
   (reify
     MigrationListener
     (migrationStarted [_ e]
-      ;; TODO: Record when migration started?
-      )
+      (with-scheduler scheduler
+        ;; TODO: Record when migration started?
+        ))
     (migrationCompleted [_ e]
-      (let [partid (.getPartitionId e)]
-        ;; I'm no longer the owner, detach async/loop and msg handler
-        (when (.localMember (.getOldOwner e))
-          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (detach-job scheduler job-id)))
-        ;; I'm the new owner, attach async/loop & msg handler
-        (when (.localMember (.getNewOwner e))
-          (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
-            (attach-job scheduler job-id)))))
+      (with-scheduler scheduler
+        (let [partid (.getPartitionId e)]
+          ;; I'm no longer the owner, detach async/loop and msg handler
+          (when (.localMember (.getOldOwner e))
+            (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
+              (detach-job scheduler job-id)))
+          ;; I'm the new owner, attach async/loop & msg handler
+          (when (.localMember (.getNewOwner e))
+            (doseq [job-id (local-partition-keys (cluster-jobs) partid)]
+              (attach-job scheduler job-id))))))
     (migrationFailed [_ e]
-      ;; TODO: How to handle failed migrations
-      )))
+      (with-scheduler scheduler
+        ;; TODO: How to handle failed migrations
+        ))))
 
 ;;
 ;; Job Entry Events
@@ -472,20 +475,23 @@
   (reify
     EntryAddedListener
     (entryAdded [_ e]
-      (let [job-id (.getKey e)]
-        (run-job scheduler job-id)
-        (add-job-listener scheduler job-id)
-        (record-job-history :create (.getValue e))))
+      (with-scheduler scheduler
+        (let [job-id (.getKey e)]
+          (run-job scheduler job-id)
+          (add-job-listener scheduler job-id)
+          (record-job-history :create (.getValue e)))))
     EntryUpdatedListener
     (entryUpdated [_ e]
-      (let [job-id (.getKey e)]
-        (record-job-history :update (.getValue e))))
+      (with-scheduler scheduler
+        (let [job-id (.getKey e)]
+          (record-job-history :update (.getValue e)))))
     EntryRemovedListener
     (entryRemoved [_ e]
-      (let [job-id (.getKey e)]
-        (remove-job-listener scheduler job-id)
-        (remove-ctrl job-id)
-        (record-job-history :remove (.getOldValue e))))))
+      (with-scheduler scheduler
+        (let [job-id (.getKey e)]
+          (remove-job-listener scheduler job-id)
+          (remove-ctrl job-id)
+          (record-job-history :remove (.getOldValue e)))))))
 
 ;;
 ;; Scheduler Object

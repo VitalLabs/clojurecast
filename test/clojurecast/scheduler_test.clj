@@ -29,6 +29,7 @@
 
       ;; invoke tests with scheduler1
       (with-scheduler scheduler1
+        (println :node1 (cluster/local-member-uuid))
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
@@ -36,6 +37,7 @@
 
       ;; invoke tests with scheduler2
       (with-scheduler scheduler2
+        (println :node2 (cluster/local-member-uuid))
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
@@ -69,10 +71,10 @@
   (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
     
     (when (identical? *scheduler* scheduler1)
-      ;; (com/stop scheduler2)
-      ;; (com/stop node2)
-      ;; (com/start (assoc scheduler2 :node (com/start node2)))
-      )
+      (with-scheduler scheduler1
+        (com/stop scheduler2)
+        (com/stop node2)
+        (com/start (assoc scheduler2 :node (com/start node2)))))
     
     (when (identical? *scheduler* scheduler2)
       ;; (com/stop scheduler1)
