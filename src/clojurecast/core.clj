@@ -11,7 +11,7 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:dynamic ^HazelcastInstance *instance*)
+(def ^:dynamic ^HazelcastInstance *instance* nil)
 
 (defrecord Node [^HazelcastInstance instance]
   com/Component
