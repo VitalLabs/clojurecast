@@ -498,6 +498,7 @@
   (cond
     (symbol? x) (resolve x)
     (var? x) x
+    (fn? x) x
     :else (fn [action job-state])))
 
 ;;
