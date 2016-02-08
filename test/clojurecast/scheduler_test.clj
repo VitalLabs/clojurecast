@@ -21,9 +21,11 @@
 
 (def ^:dynamic *jobs* nil)
 
+(def ^:dynamic *node* nil)
+
 (defn with-mock-jobs
   "Establishes jobs for each mock system."
-  [call-next-method]
+  [f]
   (binding [*jobs* []]
     (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
 
@@ -33,7 +35,8 @@
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
-        (call-next-method))
+        (binding [*node* node1]
+          (f)))
 
       ;; invoke tests with scheduler2
       (with-scheduler scheduler2
@@ -41,7 +44,8 @@
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
-        (call-next-method))
+        (binding [*node* node2]
+          (f)))
 
       ;; unschedule everything
       (with-scheduler scheduler1
@@ -58,6 +62,17 @@
 
 (use-fixtures :once with-mock-system with-mock-jobs)
 
+(defn- ensure-node-binding
+  "Ensure when *node* is bound, it is bound with the identical hazelcast
+  instance the code is being run against."
+  [f]
+  (when *node*
+    (is (= (cluster/local-member-uuid (:instance *node*))
+           (cluster/local-member-uuid))))
+  (f))
+
+(use-fixtures :each ensure-node-binding)
+
 (deftest scheduler-is-bound
   (is *scheduler* "Scheduler is unbound."))
 
@@ -71,10 +86,11 @@
   (let [{:keys [node1 scheduler1 node2 scheduler2]} system]
     
     (when (identical? *scheduler* scheduler1)
-      (with-scheduler scheduler1
-        (com/stop scheduler2)
-        (com/stop node2)
-        (com/start (assoc scheduler2 :node (com/start node2)))))
+      ;; (with-scheduler scheduler1
+      ;;   (com/stop scheduler2)
+      ;;   (com/stop node2)
+      ;;   (com/start (assoc scheduler2 :node (com/start node2))))
+      )
     
     (when (identical? *scheduler* scheduler2)
       ;; (com/stop scheduler1)
