@@ -340,7 +340,8 @@
       (let [job (get-job job-id)
             ctrl (create-ctrl job-id)
             timeout-ms (:job/timeout job)
-            [val ch] (async/alts! [ctrl (async/timeout timeout-ms)])]
+            [^clojure.lang.Keyword val ch]
+            (async/alts! [ctrl (async/timeout timeout-ms)])]
         (if (= ctrl ch)
           (cond
             (= val :resume) (recur)
