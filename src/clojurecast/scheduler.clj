@@ -493,6 +493,13 @@
           (remove-ctrl job-id)
           (record-job-history :remove (.getOldValue e)))))))
 
+(defn- resolve-history-fn
+  [x]
+  (cond
+    (symbol? x) (resolve x)
+    (var? x) x
+    :else (fn [action job-state])))
+
 ;;
 ;; Scheduler Object
 ;;
@@ -511,7 +518,7 @@
           part (cc/partition-service (:instance node))
           this (assoc this
                       :ctrls (atom {})
-                      :config (update config :history-fn resolve))
+                      :config (update config :history-fn resolve-history-fn))
           eid (.addLocalEntryListener jobs (job-entry-listener this ctrls))
           mid (.addMigrationListener part (migration-listener this ctrls))
           local-jobs (seq (.localKeySet jobs))
@@ -538,7 +545,9 @@
       (if (thread-bound? #'*scheduler*)
         (set! *scheduler* nil)
         (.bindRoot #'*scheduler* nil))
-      (assoc this :ctrls nil :entry-id nil)))
+      (assoc this
+             :ctrls nil :entry-id nil :migration-id nil
+             :config (update config :history-fn ))))
   (-migrate [this] this))
 
 
