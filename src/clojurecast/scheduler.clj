@@ -548,8 +548,7 @@
         (set! *scheduler* nil)
         (.bindRoot #'*scheduler* nil))
       (assoc this
-             :ctrls nil :entry-id nil :migration-id nil
-             :config (update config :history-fn ))))
+             :ctrls nil :entry-id nil :migration-id nil)))
   (-migrate [this] this))
 
 
