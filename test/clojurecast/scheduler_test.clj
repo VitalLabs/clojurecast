@@ -31,7 +31,6 @@
 
       ;; invoke tests with scheduler1
       (with-scheduler scheduler1
-        (println :node1 (cluster/local-member-uuid))
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
@@ -40,7 +39,6 @@
 
       ;; invoke tests with scheduler2
       (with-scheduler scheduler2
-        (println :node2 (cluster/local-member-uuid))
         (doseq [job (gen/sample job 10)]
           (set! *jobs* (conj *jobs* (:job/id job)))
           (schedule job))
