@@ -3,7 +3,7 @@
             [clojurecast.action-lists :as actions :refer [define-action-list
                                                           define-action]]
             [clojure.edn :as edn])
-  (:import [com.hazelcast.core Hazelcast HazelcastInstance]))
+  (:import [com.hazelcast.core HazelcastInstance]))
 
 (define-action-list "Hazelcast start"
   :doc "Actions to run after the Hazelcast service has started."
@@ -21,7 +21,7 @@
   svc/Service
   (start-service [service]
     (assoc service
-           :instance (Hazelcast/newHazelcastInstance)
+           :instance (com.hazelcast.core.Hazelcast/newHazelcastInstance)
            :state :service.state/started))
   (stop-service [service]
     (.shutdown instance)
