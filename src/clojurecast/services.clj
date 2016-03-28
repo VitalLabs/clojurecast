@@ -138,14 +138,14 @@
   [service]
   (if (service-started? service)
     service
-    (as-> (start-service service) service
+    (let [service (start-service service)]
       (actions/execute-actions "Service start" service)
       service)))
 
 (defn stop
   [service]
   (if (service-started? service)
-    (as-> (stop-service service) service
+    (let [service (stop-service service)]
       (actions/execute-actions "Service stop" service)
       service)
     service))
