@@ -1,7 +1,5 @@
 (ns clojurecast.services.repl
-  (:refer-clojure :exclude [sync])
-  (:require [com.stuartsierra.component :as com]
-            [clojure.tools.nrepl.server :as nrepl-server]
+  (:require [clojure.tools.nrepl.server :as nrepl-server]
             [cider.nrepl :refer [cider-nrepl-handler]]
             [clojurecast.services :as svc]
             [clojurecast.action-lists :as actions :refer [define-action-list]]
