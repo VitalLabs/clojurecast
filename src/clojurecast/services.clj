@@ -14,13 +14,13 @@
     "Starts the local service. Returns an updated service record.")
   (stop-service [service]
     "Stops the local service. Returns an updated service record.")
-  (service-defaults [service]
-    "Returns a map with the default configuration for this service.")
   (service-state [service]
     "Returns at least one of :service.state/started,
     :service.state/stopped, or :service.state/error. Can return other
     values derived from these (via clojure.core/derive) with domain
-    specific semantics.")  
+    specific semantics.")
+  (service-defaults [service]
+    "Returns a map with the default configuration for this service.")
   (service-configuration [service]
     "Returns the active configuration map of the local service.")
   (service-description [service]
