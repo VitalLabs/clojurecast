@@ -5,10 +5,6 @@
                                                           define-action]]
             [clojure.edn :as edn]))
 
-(defprotocol DatomicService
-  (get-connection [service]
-    "Returns the connection for the Datomic database."))
-
 (define-action-list "Datomic start"
   :doc "Actions to run after the Datomic service has started."
   :sort-time :define-action)
@@ -16,6 +12,10 @@
 (define-action-list "Datomic stop"
   :doc "Actions to run after the Datomic service has stopped."
   :sort-time :define-action)
+
+(defprotocol DatomicService
+  (get-connection [service]
+    "Returns the connection for the Datomic database."))
 
 (defrecord Datomic [conn]
   svc/Service
