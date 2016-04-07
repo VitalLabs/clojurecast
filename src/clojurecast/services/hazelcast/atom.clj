@@ -25,9 +25,11 @@
                         ^String validator-name
                         ^String meta-name
                         nippy-options]
-  HazelcastService
+  hz-svc/HazelcastService
   (get-instance [ref]
     (hz-svc/get-instance service))
+  (get-password [ref]
+    (hz-svc/get-password service))
   
   clojure.lang.IRef
   (deref [ref]
@@ -107,5 +109,5 @@
                    (str name "/watches")
                    (str name "/validator")
                    (str name "/meta")
-                   (merge {:password (hz/get-password service)}
+                   (merge {:password (hz-svc/get-password service)}
                           nippy-options))))
