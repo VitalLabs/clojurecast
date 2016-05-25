@@ -11,6 +11,6 @@
                  [com.taoensso/nippy "2.10.0"]
                  [clj-time "0.11.0"]]
   :profiles {:dev {:dependencies [[org.clojure/tools.namespace "0.2.11"]
-                                  [org.clojure/test.check "0.8.1"]]
+                                  [org.clojure/test.check "0.9.0"]]
                    :source-paths ["dev"]
                    :jvm-opts ^:replace ["-server"]}})
