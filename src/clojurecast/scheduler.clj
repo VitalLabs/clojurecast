@@ -98,7 +98,7 @@
    {:pre [*scheduler*]}
    (cluster-jobs (scheduler-instance)))
   ([instance]
-   (cc/distributed-map instance "scheduler/jobs")))
+   (cc/distributed-map instance "cluster-jobs")))
 
 ;;
 ;; JOB Management API
