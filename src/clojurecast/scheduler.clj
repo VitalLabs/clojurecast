@@ -346,7 +346,7 @@
           (put-job! newjob))
         (if (= ctrl ch)
           (cond
-            (= val :resume) (recur)
+            (= val :resume) (recur newjob)
             (= val :detach) nil
             (= val :stop) (unschedule job-id)
             :else (unschedule job-id))
