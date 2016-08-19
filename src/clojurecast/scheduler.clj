@@ -129,9 +129,13 @@
   {:pre [*scheduler*]}
   (cond
     (map? job)
-    (.remove (cluster-jobs) (str (:job/id job)))
+    (do
+      (.remove (cluster-jobs) (str (:job/id job)))
+      (.destroy (cc/reliable-topic (str (:job/id job)))))
     (or (string? job) (instance? java.util.UUID job))
-    (.remove (cluster-jobs) (str job))
+    (do
+      (.remove (cluster-jobs) (str job))
+      (.destroy (cc/reliable-topic (str job))))
     :else (throw (ex-info "Job is not one of [map|string|uuid]" {:job job}))))
 
 (defn schedule
