@@ -336,12 +336,14 @@
 (defn- run-job
   [scheduler job-id]
   (with-scheduler scheduler
-    (async/go-loop []
-      (let [job (get-job job-id)
+    (async/go-loop [newjob nil]
+      (let [job (or newjob (get-job job-id))
             ctrl (create-ctrl job-id)
             timeout-ms (:job/timeout job)
             [^clojure.lang.Keyword val ch]
             (async/alts! [ctrl (async/timeout timeout-ms)])]
+        (when newjob
+          (put-job! newjob))
         (if (= ctrl ch)
           (cond
             (= val :resume) (recur)
@@ -359,13 +361,11 @@
                 ;; Ensure the job always has the proper id, regardless
                 ;; of user error.
                 newjob (assoc newjob :job/id job-id)]
-            (when newjob
-              (put-job! newjob))
             (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
               (async/<! ctrl)) ;; block on a channel event to proceed
             (if (= (:job/state newjob) :job.state/terminated)
               (unschedule job-id) ;; unschedule completely if terminated
-              (recur))))))))
+              (recur newjob))))))))
 
 
 ;;
