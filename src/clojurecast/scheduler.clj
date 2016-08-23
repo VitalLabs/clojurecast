@@ -3,7 +3,8 @@
             [clojurecast.cluster :as cluster]
             [clojurecast.component :as com]
             [clojure.core.async :as async]
-            [clojure.core.async.impl.protocols :as impl])
+            [clojure.core.async.impl.protocols :as impl]
+            [clojure.tools.logging :as log])
   (:import [java.util.concurrent DelayQueue Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
@@ -364,6 +365,7 @@
                          (put-job! job)
                          (run job)
                          (catch Throwable e
+                           (log/error e (.getMessage e))
                            (assoc job
                                   :job/state :job.state/failed
                                   :job/prior-state (:job/state job)
@@ -397,6 +399,7 @@
               newjob (try
                        (handle-message job msg)
                        (catch Throwable e
+                         (log/error e (.getMessage e))
                          (assoc job
                                 :job/state :job.state/failed
                                 :job/msg msg
