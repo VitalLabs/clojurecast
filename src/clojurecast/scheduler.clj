@@ -146,7 +146,7 @@
   [job]
   {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
   (put-job! (assoc job
-                   :job/state (:job/state job :job.state/running)
+                   :job/state (:job/state job :job.state/init)
                    :job/timeout (:job/timeout job 0))))
 
 (defn reschedule
