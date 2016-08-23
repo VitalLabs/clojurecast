@@ -370,11 +370,11 @@
                 ;; Ensure the job always has the proper id, regardless
                 ;; of user error.
                 newjob (assoc newjob :job/id job-id)]
-            (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
-              (async/<! ctrl)) ;; block on a channel event to proceed
-            (if (= (:job/state newjob) :job.state/terminated)
-              (unschedule job-id) ;; unschedule completely if terminated
-              (recur newjob))))))))
+            (when-not (contains? #{:job.state/paused :job.state/failed}
+                                 (:job/state newjob))
+              (if (= (:job/state newjob) :job.state/terminated)
+                (unschedule job-id)
+                (recur newjob)))))))))
 
 
 ;;
