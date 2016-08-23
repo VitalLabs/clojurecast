@@ -371,7 +371,10 @@
                                   :job/timeout 0)))
                 ;; Ensure the job always has the proper id, regardless
                 ;; of user error.
-                newjob (assoc newjob :job/id job-id)]
+                newjob (assoc newjob :job/id job-id)
+                newjob (if (= (:job/state newjob) :job.state/failed)
+                         (run newjob)
+                         newjob)]
             (if (= (:job/state newjob) :job.state/terminated)
               (unschedule job-id)
               (recur newjob))))))))
