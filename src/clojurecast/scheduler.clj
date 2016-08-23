@@ -348,21 +348,20 @@
     (async/go-loop [newjob nil]
       (let [job (or newjob (get-job job-id))
             ctrl (create-ctrl job-id)
-            timeout-ms (:job/timeout job)
             channels (if (#{:job.state/paused
                             :job.state/failed} (:job/state job))
                        [ctrl]
-                       [ctrl (async/timeout timeout-ms)])
-            [^clojure.lang.Keyword val ch] (async/alts! channels)]
-        (when newjob
-          (put-job! newjob))
+                       [ctrl (async/timeout (:job/timeout job))])
+            [^clojure.lang.Keyword val ch] (async/alts! channels)]        
         (if (= ctrl ch)
           (cond
-            (= val :resume) (recur newjob)
+            (= val :resume) (recur (get-job job-id))
             (= val :detach) nil
             (= val :stop) (unschedule job-id)
             :else (unschedule job-id))
           (let [newjob (try
+                         ;; ensure the job in cluster-jobs is correct 
+                         (put-job! job)
                          (run job)
                          (catch Throwable e
                            (assoc job
