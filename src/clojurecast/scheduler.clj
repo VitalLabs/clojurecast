@@ -373,7 +373,10 @@
                 ;; of user error.
                 newjob (assoc newjob :job/id job-id)
                 newjob (if (= (:job/state newjob) :job.state/failed)
-                         (run newjob)
+                         (try
+                           (run newjob)
+                           (catch Throwable e
+                             newjob))
                          newjob)]
             (if (= (:job/state newjob) :job.state/terminated)
               (unschedule job-id)
