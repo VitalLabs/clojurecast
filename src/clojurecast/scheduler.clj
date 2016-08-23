@@ -242,6 +242,10 @@
        :job/state :job.state/running
        :job/timeout 0)))
 
+(defmethod run [:job/t :job.state/paused]
+  [job]
+  job)
+
 (defmethod run [:job/t :job.state/failed]
   [job]
   job)
@@ -252,7 +256,8 @@
 
 (defmethod run :default
   [job]
-  (throw (ex-info "Unhandled state in run method" {})))
+  (throw (ex-info "Unhandled state in run method"
+                  {:job/state (:job/state job)})))
 
 
 ;; Special message types :event/type
