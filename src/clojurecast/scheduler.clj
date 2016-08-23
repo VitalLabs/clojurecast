@@ -349,8 +349,11 @@
       (let [job (or newjob (get-job job-id))
             ctrl (create-ctrl job-id)
             timeout-ms (:job/timeout job)
-            [^clojure.lang.Keyword val ch]
-            (async/alts! [ctrl (async/timeout timeout-ms)])]
+            channels (if (#{:job.state/paused
+                            :job.state/failed} (:job/state job))
+                       [ctrl]
+                       [ctrl (async/timeout timeout-ms)])
+            [^clojure.lang.Keyword val ch] (async/alts! channels)]
         (when newjob
           (put-job! newjob))
         (if (= ctrl ch)
@@ -370,11 +373,9 @@
                 ;; Ensure the job always has the proper id, regardless
                 ;; of user error.
                 newjob (assoc newjob :job/id job-id)]
-            (when-not (contains? #{:job.state/paused :job.state/failed}
-                                 (:job/state newjob))
-              (if (= (:job/state newjob) :job.state/terminated)
-                (unschedule job-id)
-                (recur newjob)))))))))
+            (if (= (:job/state newjob) :job.state/terminated)
+              (unschedule job-id)
+              (recur newjob))))))))
 
 
 ;;
