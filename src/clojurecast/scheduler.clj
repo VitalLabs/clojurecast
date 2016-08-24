@@ -379,6 +379,11 @@
                            (run newjob)
                            (catch Throwable e
                              newjob))
+                         newjob)
+                newjob (if (= (:job/state newjob) :job.state/paused)
+                         (do
+                           (put-job! newjob)
+                           newjob)
                          newjob)]
             (if (= (:job/state newjob) :job.state/terminated)
               (unschedule job-id)
