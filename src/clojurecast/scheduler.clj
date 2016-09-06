@@ -3,7 +3,8 @@
             [clojurecast.cluster :as cluster]
             [clojurecast.component :as com]
             [clojure.core.async :as async]
-            [clojure.core.async.impl.protocols :as impl])
+            [clojure.core.async.impl.protocols :as impl]
+            [clojure.tools.logging :as log])
   (:import [java.util.concurrent DelayQueue Executors ScheduledExecutorService]
            [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor]
            [com.hazelcast.core Cluster MembershipListener EntryListener]
@@ -98,7 +99,7 @@
    {:pre [*scheduler*]}
    (cluster-jobs (scheduler-instance)))
   ([instance]
-   (cc/distributed-map instance "scheduler/jobs")))
+   (cc/distributed-map instance "cluster-jobs")))
 
 ;;
 ;; JOB Management API
@@ -129,9 +130,13 @@
   {:pre [*scheduler*]}
   (cond
     (map? job)
-    (.remove (cluster-jobs) (str (:job/id job)))
+    (do
+      (.remove (cluster-jobs) (str (:job/id job)))
+      (.destroy (cc/reliable-topic (str (:job/id job)))))
     (or (string? job) (instance? java.util.UUID job))
-    (.remove (cluster-jobs) (str job))
+    (do
+      (.remove (cluster-jobs) (str job))
+      (.destroy (cc/reliable-topic (str job))))
     :else (throw (ex-info "Job is not one of [map|string|uuid]" {:job job}))))
 
 (defn schedule
@@ -142,7 +147,7 @@
   [job]
   {:pre [(:job/id job) (nil? (get-job (:job/id job)))]}
   (put-job! (assoc job
-                   :job/state (:job/state job :job.state/running)
+                   :job/state (:job/state job :job.state/init)
                    :job/timeout (:job/timeout job 0))))
 
 (defn reschedule
@@ -238,6 +243,10 @@
        :job/state :job.state/running
        :job/timeout 0)))
 
+(defmethod run [:job/t :job.state/paused]
+  [job]
+  job)
+
 (defmethod run [:job/t :job.state/failed]
   [job]
   job)
@@ -248,7 +257,8 @@
 
 (defmethod run :default
   [job]
-  (throw (ex-info "Unhandled state in run method" {})))
+  (throw (ex-info "Unhandled state in run method"
+                  {:job/state (:job/state job)})))
 
 
 ;; Special message types :event/type
@@ -336,21 +346,26 @@
 (defn- run-job
   [scheduler job-id]
   (with-scheduler scheduler
-    (async/go-loop []
-      (let [job (get-job job-id)
+    (async/go-loop [newjob nil]
+      (let [job (or newjob (get-job job-id))
             ctrl (create-ctrl job-id)
-            timeout-ms (:job/timeout job)
-            [^clojure.lang.Keyword val ch]
-            (async/alts! [ctrl (async/timeout timeout-ms)])]
+            channels (if (#{:job.state/paused
+                            :job.state/failed} (:job/state job))
+                       [ctrl]
+                       [ctrl (async/timeout (:job/timeout job))])
+            [^clojure.lang.Keyword val ch] (async/alts! channels)]        
         (if (= ctrl ch)
           (cond
-            (= val :resume) (recur)
+            (= val :resume) (recur (get-job job-id))
             (= val :detach) nil
             (= val :stop) (unschedule job-id)
             :else (unschedule job-id))
           (let [newjob (try
+                         ;; ensure the job in cluster-jobs is correct 
+                         (put-job! job)
                          (run job)
                          (catch Throwable e
+                           (log/error e (.getMessage e))
                            (assoc job
                                   :job/state :job.state/failed
                                   :job/prior-state (:job/state job)
@@ -358,14 +373,21 @@
                                   :job/timeout 0)))
                 ;; Ensure the job always has the proper id, regardless
                 ;; of user error.
-                newjob (assoc newjob :job/id job-id)]
-            (when newjob
-              (put-job! newjob))
-            (when (#{:job.state/paused :job.state/failed} (:job/state newjob))
-              (async/<! ctrl)) ;; block on a channel event to proceed
+                newjob (assoc newjob :job/id job-id)
+                newjob (if (= (:job/state newjob) :job.state/failed)
+                         (try
+                           (run newjob)
+                           (catch Throwable e
+                             newjob))
+                         newjob)
+                newjob (if (= (:job/state newjob) :job.state/paused)
+                         (do
+                           (put-job! newjob)
+                           newjob)
+                         newjob)]
             (if (= (:job/state newjob) :job.state/terminated)
-              (unschedule job-id) ;; unschedule completely if terminated
-              (recur))))))))
+              (unschedule job-id)
+              (recur newjob))))))))
 
 
 ;;
@@ -382,6 +404,7 @@
               newjob (try
                        (handle-message job msg)
                        (catch Throwable e
+                         (log/error e (.getMessage e))
                          (assoc job
                                 :job/state :job.state/failed
                                 :job/msg msg

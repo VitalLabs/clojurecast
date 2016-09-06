@@ -7,24 +7,28 @@
             [clojurecast.lang.cache :as cache]
             [clojurecast.lang.buffers :as buffers])
   (:import [com.hazelcast.core Hazelcast HazelcastInstance]
+           [com.hazelcast.config Config]
            [java.util.concurrent TimeUnit]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:dynamic ^HazelcastInstance *instance* nil)
 
-(defrecord Node [^HazelcastInstance instance]
+(defrecord Node [^HazelcastInstance instance ^Config config]
   com/Component
   (initialized? [_] true)
   (started? [_] (boolean instance))
   (migrate? [_] false)
   (-init [this] this)
   (-start [this]
-    (let [instance (Hazelcast/newHazelcastInstance)]
+    (let [config (or config (Config.))
+          instance (Hazelcast/newHazelcastInstance config)]
       (if (thread-bound? #'*instance*)
         (set! *instance* instance)
         (.bindRoot #'*instance* instance))
-      (assoc this :instance instance)))
+      (assoc this
+             :instance instance
+             :config config)))
   (-stop [this]
     (when-not (.isClusterSafe (.getPartitionService instance))
       (.forceLocalMemberToBeSafe (.getPartitionService instance)
