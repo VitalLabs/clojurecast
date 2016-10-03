@@ -1,7 +1,9 @@
 (defproject org.clojurecast/clojurecast "0.1.3"
-  :description ""
-  :url ""
-  :license {:name "Proprietary"}
+  :description "A Clojure infrastructure library for building distributed systems 
+                built on the HazelCast library."
+  :url "https://github.com/VitalLabs/clojurecast"
+  :license {:name "MIT License"
+            :url "https://opensource.org/licenses/MIT"}
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/core.async "0.2.374"]
                  [org.clojure/core.cache "0.6.4"]
