@@ -11,7 +11,7 @@
                  [com.hazelcast/hazelcast-all "3.6.1"]
                  [javax.cache/cache-api "1.0.0"]
                  [com.stuartsierra/component "0.3.1"]
-                 [com.taoensso/nippy "2.11.1"]]
+                 [com.taoensso/nippy "2.12.1"]]
   :profiles {:dev {:dependencies [[org.clojure/tools.namespace "0.2.11"]
                                   [org.clojure/test.check "0.9.0"]]
                    :source-paths ["dev"]
