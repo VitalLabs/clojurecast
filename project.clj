@@ -1,4 +1,4 @@
-(defproject org.clojurecast/clojurecast "0.1.3"
+(defproject org.clojurecast/clojurecast "0.2.0"
   :description "A Clojure infrastructure library for building distributed systems 
                 built on the HazelCast library."
   :url "https://github.com/VitalLabs/clojurecast"
