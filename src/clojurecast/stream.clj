@@ -39,10 +39,6 @@
 ;;
 
 
-;(defn event-bus
-;  []
-;  (reify manifold.bus.IEventBus))
-
 (def default-thread-count 4)
 
 (defn- make-executor
@@ -192,4 +188,34 @@
       topic
       (AtomicReference. (d/success-deferred true)))))
 
+;; ================== TOPIC BUS ========================
+
+;; TODO: Distributed metadata service and API to topics or purely local construct?
+
+(defprotocol IReliableEventBus
+  (restore-subscription [topic start]))
+
+(defn get-topic
+  [instance topic-streams topic-name]
+  ;; TODO: Cache the sink proxy
+  (s/->sink (cc/reliable-topic instance topic-name)))
+
+(deftype HazelcastReliableEventBus [instance config topic-streams]
+  manifold.bus.IEventBus
+  (subscribe [this topic]
+    (reliable-topic-stream topic -1 (:handler config)))
+  (publish [this topic message]
+    (s/put! (get-topic instance topic-streams topic) message))
+  ;; TODO - Improve introspection!
+  (isActive [_ topic] true)
+  (snapshot [_] nil)
+  (downstream [_ topic] [])
+  IReliableEventBus
+  (restore-subscription [this topic start]
+    ;; TODO: Check for existing subscription?
+    (reliable-topic-stream topic start (:handler config))))
+
+(defn reliable-event-bus
+  [config]
+  (->HazelcastReliableEventBus config))
 

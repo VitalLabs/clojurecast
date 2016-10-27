@@ -150,18 +150,16 @@
 ;;
 ;; Special job states:
 
+;; :job.state/init - A state to enter the first
+;; time a job is run, default is to proceed directly to :job.state/running
+
 ;; :job.state/running - All jobs implement as a default entry
 ;; point for the state machine.
-
-;; :job.state/init - A state to enter the first
-;; time a job is run, default is to proceed directly to
 
 ;; :job.state/reinit - Jobs can implement this to
 ;; reset state after a migration or restart.  The previous state is in
 
 ;;     :job/prior-state.  Default is to proceed to :job.state/running
-
-;; :job.state/running - All jobs implement this
 
 ;; :job.state/failed - The job crashed, storage and ctrl
 ;; retained but not timeout If you override, you can force a reset on
