@@ -1,0 +1,18 @@
+TODO
+
+Features desired for a ClojureCast 1.0 Release
+
+Major Goals
+- Hide ALL hazelcast specifics from users of CC except for advanced cases
+- Distributed computation API for various forms of HZ executors
+- Transactions
+
+Minor Goals
+- Simple session store model for ring/aleph users
+- More support for content-based partitioning for locality
+- Cluster lifecycle events as subscribable stream (e.g. for logging / debugging / notification)
+
+Future Issues
+- Support for traffic shaping on incoming requests
+- Distributed query
+- Support for the hazelcast simulator (?)
