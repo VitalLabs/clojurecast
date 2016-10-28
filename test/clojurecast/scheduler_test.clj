@@ -6,7 +6,6 @@
   (:require [clojurecast.core :as cc]
             [clojurecast.cluster :as cluster]
             [clojurecast.component :as com]
-            [clojure.core.async :as async]
             [clojure.test.check :as tc]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))

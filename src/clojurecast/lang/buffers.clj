@@ -7,8 +7,7 @@
 ;; or any other, from this software.
 
 (ns clojurecast.lang.buffers
-  (:require [clojure.core.async.impl.protocols :as impl]
-            [taoensso.nippy :as nippy])
+  (:require [clojure.core.async.impl.protocols :as impl])
   (:import [java.util LinkedList Queue]
            [com.hazelcast.core HazelcastInstance IQueue IAtomicReference]))
 

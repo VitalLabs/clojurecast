@@ -13,7 +13,8 @@
             [clojurecast.lang.agent :as agent]
             [clojurecast.lang.atom :as atom]
             [clojurecast.lang.cache :as cache]
-            [clojurecast.lang.buffers :as buffers])
+            [clojurecast.lang.buffers :as buffers]
+            [clojurecast.serialization])
   (:import [com.hazelcast.core Hazelcast HazelcastInstance]
            [com.hazelcast.config Config]
            [java.util.concurrent TimeUnit]))

@@ -1,22 +1,46 @@
 (ns clojurecast.serialization
   (:require [clojure.edn :as edn]
             [taoensso.nippy :as nippy])
-  (:import [com.hazelcast.nio.serialization StreamSerializer]))
+  (:import [com.hazelcast.nio.serialization StreamSerializer ByteArraySerializer]
+           #_[com.hazelcast.config SerializerConfig ]))
 
 
-(defconst nippy-serializer 42)
+;;
+;; Register Serializers (Programmatic API)
+;;
+
+#_(defn configure-serializers
+  "Given an HZ config object, add support for custom"
+  [config]
+  (let [sc (SerializersConfig.)]
+    )
+  (.addSerializerConfig config sc)
+  )
+
+(def nippy-serializer 42)
 
 (deftype NippySerializer []
-  StreamSerializer
+  ByteArraySerializer
   (getTypeId [this] nippy-serializer)
-  (write [this out object]
-    (let [bytes (nippy/freeze object)]
-      (.writeByteArray out bytes)))
-  (read [this in]
-    (let [bytes (.readByteArray in)]
-      (nippy/thaw bytes))))
+  (write [this object]
+    (nippy/freeze object))
+  (read [this bytes]
+    (nippy/thaw bytes)))
 
-(defconst edn-serializer 43)
+(def creds [:salted "incant3r"])
+(defn set-credentials!
+  [password]
+  (alter-var-root #'creds (fn [old] password)))
+
+(deftype EncryptedNippySerializer []
+  ByteArraySerializer
+  (getTypeId [this] nippy-serializer)
+  (write [this object]
+    (nippy/freeze object {:password creds}))
+  (read [this bytes]
+    (nippy/thaw bytes {:password creds})))
+
+(def edn-serializer 43)
 
 ;; NOTE: This is not efficient!
 (deftype EDNSerializer []
